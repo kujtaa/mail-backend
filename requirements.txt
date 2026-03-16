@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+sqlalchemy[asyncio]
+aiomysql
+alembic
+aiohttp
+beautifulsoup4
+random_user_agent
+pydantic[email]
+python-dotenv
+passlib[bcrypt]
+bcrypt>=4.0,<4.1
+python-jose[cryptography]
+apscheduler

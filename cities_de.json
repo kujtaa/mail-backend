@@ -1,0 +1,17 @@
+[
+  {"id": 1, "name": "Berlin"},
+  {"id": 2, "name": "München"},
+  {"id": 3, "name": "Hamburg"},
+  {"id": 4, "name": "Frankfurt"},
+  {"id": 5, "name": "Köln"},
+  {"id": 6, "name": "Düsseldorf"},
+  {"id": 7, "name": "Stuttgart"},
+  {"id": 8, "name": "Leipzig"},
+  {"id": 9, "name": "Dresden"},
+  {"id": 10, "name": "Hannover"},
+  {"id": 11, "name": "Nürnberg"},
+  {"id": 12, "name": "Bremen"},
+  {"id": 13, "name": "Dortmund"},
+  {"id": 14, "name": "Essen"},
+  {"id": 15, "name": "Duisburg"}
+]
