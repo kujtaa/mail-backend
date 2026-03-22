@@ -461,6 +461,11 @@ async def send_email(
     company: Company = Depends(require_approved),
     db: AsyncSession = Depends(get_db),
 ):
+    if not company.smtp_host or not company.smtp_user or not company.smtp_pass:
+        raise HTTPException(status_code=400, detail="SMTP not configured. Go to Settings to set up your email.")
+    if not company.smtp_enabled:
+        raise HTTPException(status_code=400, detail="SMTP is disabled. Enable it in Settings before sending.")
+
     premium = _is_premium(company)
     if premium:
         await _reset_daily_sends_if_needed(db, company)
@@ -572,6 +577,8 @@ async def test_smtp(
 ):
     if not company.smtp_host or not company.smtp_user or not company.smtp_pass:
         raise HTTPException(status_code=400, detail="SMTP settings not configured. Save your settings first.")
+    if not company.smtp_enabled:
+        raise HTTPException(status_code=400, detail="SMTP is disabled. Enable the toggle and save before testing.")
 
     ok, error = await send_test_email(
         host=company.smtp_host,
