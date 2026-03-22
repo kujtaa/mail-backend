@@ -69,8 +69,17 @@ class Company(Base):
     smtp_from_email = Column(String(255), nullable=True)
     smtp_from_name = Column(String(255), nullable=True)
     smtp_enabled = Column(Boolean, nullable=False, default=False, server_default="0")
+    allowed_sources = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def get_allowed_sources(self) -> list[str]:
+        if not self.allowed_sources:
+            return []
+        return [s.strip() for s in self.allowed_sources.split(",") if s.strip()]
+
+    def set_allowed_sources(self, sources: list[str]):
+        self.allowed_sources = ",".join(sources) if sources else None
 
     email_batches = relationship("EmailBatch", back_populates="company")
     sent_emails = relationship("SentEmail", back_populates="company")

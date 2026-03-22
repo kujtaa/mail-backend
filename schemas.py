@@ -165,9 +165,14 @@ class CompanyAdmin(BaseModel):
     plan: str = "free"
     plan_expires_at: Optional[datetime] = None
     daily_send_limit: int = 0
+    allowed_sources: list[str] = []
     batches_count: int
     total_purchased_emails: int
     created_at: datetime
+
+class SetSourcesRequest(BaseModel):
+    company_id: int
+    sources: list[str]
 
 class TransactionOut(BaseModel):
     id: int

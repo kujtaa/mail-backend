@@ -21,6 +21,13 @@ CREDIT_PRICE = float(os.getenv("CREDIT_PRICE_PER_EMAIL", "1"))
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
 
+def _source_filter(company):
+    sources = company.get_allowed_sources()
+    if not sources:
+        return []
+    return [Business.source.in_(sources)]
+
+
 def _is_premium(company) -> bool:
     return (
         company.plan == "premium"
@@ -42,18 +49,20 @@ async def stats(
     company: Company = Depends(get_current_company),
     db: AsyncSession = Depends(get_db),
 ):
+    sf = _source_filter(company)
+
     total_emails_q = await db.execute(
         select(func.count(Business.id))
-        .where(Business.email.isnot(None), Business.email.contains("@"))
+        .where(Business.email.isnot(None), Business.email.contains("@"), *sf)
     )
     total_emails = total_emails_q.scalar() or 0
 
-    total_biz_q = await db.execute(select(func.count(Business.id)))
+    total_biz_q = await db.execute(select(func.count(Business.id)).where(*sf))
     total_businesses = total_biz_q.scalar() or 0
 
     with_web_q = await db.execute(
         select(func.count(Business.id))
-        .where(Business.website.isnot(None), Business.website != "")
+        .where(Business.website.isnot(None), Business.website != "", *sf)
     )
     total_with_website = with_web_q.scalar() or 0
     total_without_website = total_businesses - total_with_website
@@ -61,12 +70,14 @@ async def stats(
     total_cats_q = await db.execute(
         select(func.count(distinct(Category.id)))
         .join(Business, Business.category_id == Category.id)
+        .where(*sf)
     )
     total_categories = total_cats_q.scalar() or 0
 
     total_cities_q = await db.execute(
         select(func.count(distinct(City.id)))
         .join(Business, Business.city_id == City.id)
+        .where(*sf)
     )
     total_cities = total_cities_q.scalar() or 0
 
@@ -122,6 +133,7 @@ async def breakdown(
     company: Company = Depends(get_current_company),
     db: AsyncSession = Depends(get_db),
 ):
+    sf = _source_filter(company)
     email_case = case(
         (and_(Business.email.isnot(None), Business.email.contains("@")), Business.email),
         else_=None,
@@ -134,6 +146,7 @@ async def breakdown(
             func.count(distinct(email_case)).label("with_email"),
         )
         .join(Business, Business.category_id == Category.id)
+        .where(*sf)
         .group_by(Category.name)
         .order_by(func.count(Business.id).desc())
     )
@@ -149,6 +162,7 @@ async def breakdown(
             func.count(distinct(email_case)).label("with_email"),
         )
         .join(Business, Business.city_id == City.id)
+        .where(*sf)
         .group_by(City.name)
         .order_by(func.count(Business.id).desc())
     )
@@ -173,6 +187,7 @@ async def categories(
         .scalar_subquery()
     )
 
+    sf = _source_filter(company)
     result = await db.execute(
         select(Category.id, Category.name, func.count(distinct(Business.id)))
         .join(Business, Business.category_id == Category.id)
@@ -180,6 +195,7 @@ async def categories(
             Business.email.isnot(None),
             Business.email.contains("@"),
             Business.id.notin_(already_purchased),
+            *sf,
         )
         .group_by(Category.id, Category.name)
         .order_by(Category.name)
@@ -202,10 +218,12 @@ async def browse_overview(
         .scalar_subquery()
     )
 
+    sf = _source_filter(company)
     email_filter = and_(
         Business.email.isnot(None),
         Business.email.contains("@"),
         Business.id.notin_(already_purchased),
+        *sf,
     )
 
     cat_q = await db.execute(
@@ -249,12 +267,13 @@ async def browse_emails(
 ):
     from models import City
 
+    sf = _source_filter(company)
     query = (
         select(Business.id, Business.name, Business.email,
                City.name.label("city_name"), Category.name.label("cat_name"))
         .join(City, Business.city_id == City.id)
         .join(Category, Business.category_id == Category.id)
-        .where(Business.email.isnot(None), Business.email.contains("@"))
+        .where(Business.email.isnot(None), Business.email.contains("@"), *sf)
     )
     if category != "all":
         query = query.where(Category.name == category)
@@ -312,10 +331,12 @@ async def purchase_batch(
         .scalar_subquery()
     )
 
+    sf = _source_filter(company)
     filters = [
         Business.email.isnot(None),
         Business.email.contains("@"),
         Business.id.notin_(already_purchased),
+        *sf,
     ]
     if cat:
         filters.append(Business.category_id == cat.id)

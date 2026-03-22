@@ -7,11 +7,11 @@ from sqlalchemy import select, func, distinct, or_
 
 from db import get_db
 from models import (
-    Business, Category, City, Company, EmailBatch, BatchEmail, CreditTransaction,
+    Business, Category, City, Company, EmailBatch, BatchEmail, CreditTransaction, SentEmail,
 )
 from schemas import (
     AddCreditsRequest, CompanyAdmin, TransactionOut,
-    ScrapeRequest, EmailPreview,
+    ScrapeRequest, EmailPreview, SetSourcesRequest,
 )
 from dependencies import require_admin
 from scrape_jobs import create_job, get_job, get_all_jobs, enqueue_job
@@ -50,6 +50,7 @@ async def list_companies(
             is_approved=c.is_approved,
             plan=c.plan, plan_expires_at=c.plan_expires_at,
             daily_send_limit=c.daily_send_limit,
+            allowed_sources=c.get_allowed_sources(),
             batches_count=batches_q.scalar(),
             total_purchased_emails=emails_q.scalar(),
             created_at=c.created_at,
@@ -447,7 +448,7 @@ async def set_plan(
 
 
 @router.delete("/companies/{company_id}")
-async def deactivate_company(
+async def delete_company(
     company_id: int,
     _admin: Company = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
@@ -457,9 +458,58 @@ async def deactivate_company(
     if not company:
         raise HTTPException(status_code=404, detail="Company not found")
     if company.is_admin:
-        raise HTTPException(status_code=400, detail="Cannot deactivate admin account")
+        raise HTTPException(status_code=400, detail="Cannot delete admin account")
 
-    company.credit_balance = 0
-    company.hashed_password = "DEACTIVATED"
+    name = company.name
+
+    batch_ids_q = await db.execute(
+        select(EmailBatch.id).where(EmailBatch.company_id == company_id)
+    )
+    batch_ids = [r[0] for r in batch_ids_q.all()]
+
+    if batch_ids:
+        be_ids_q = await db.execute(
+            select(BatchEmail.id).where(BatchEmail.batch_id.in_(batch_ids))
+        )
+        be_ids = [r[0] for r in be_ids_q.all()]
+
+        if be_ids:
+            await db.execute(
+                SentEmail.__table__.delete().where(SentEmail.batch_email_id.in_(be_ids))
+            )
+            await db.execute(
+                BatchEmail.__table__.delete().where(BatchEmail.id.in_(be_ids))
+            )
+
+        await db.execute(
+            EmailBatch.__table__.delete().where(EmailBatch.id.in_(batch_ids))
+        )
+
+    await db.execute(
+        CreditTransaction.__table__.delete().where(CreditTransaction.company_id == company_id)
+    )
+
+    await db.delete(company)
     await db.commit()
-    return {"detail": f"Company '{company.name}' deactivated"}
+    return {"detail": f"Company '{name}' permanently deleted"}
+
+
+@router.post("/set-sources")
+async def set_company_sources(
+    req: SetSourcesRequest,
+    _admin: Company = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    valid_sources = {"local.ch", "gelbeseiten.de", "herold.at", "proff.no", "proff.dk"}
+    invalid = set(req.sources) - valid_sources
+    if invalid:
+        raise HTTPException(status_code=400, detail=f"Invalid sources: {invalid}")
+
+    result = await db.execute(select(Company).where(Company.id == req.company_id))
+    company = result.scalar_one_or_none()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+
+    company.set_allowed_sources(req.sources)
+    await db.commit()
+    return {"detail": f"Sources updated for '{company.name}'", "sources": company.get_allowed_sources()}
