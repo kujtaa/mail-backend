@@ -72,6 +72,12 @@ async def _fetch(
                         await asyncio.sleep(5 * (attempt + 1))
                         continue
                     return None
+            except aiohttp.ClientHttpProxyError as e:
+                if e.status == 407:
+                    await asyncio.sleep(1)
+                else:
+                    _block_proxy(proxy, 60)
+                    await asyncio.sleep(3 * (attempt + 1))
             except (aiohttp.ClientError, asyncio.TimeoutError):
                 _block_proxy(proxy, 60)
                 await asyncio.sleep(3 * (attempt + 1))

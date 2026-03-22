@@ -179,12 +179,15 @@ async def scrape_options(
     _admin: Company = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    if source == "gelbeseiten.de":
-        cities = _load_json("cities_de.json")
-        categories = _load_json("categories_de.json")
-    else:
-        cities = _load_json("cities.json")
-        categories = _load_json("categories.json")
+    _source_files = {
+        "gelbeseiten.de": ("cities_de.json", "categories_de.json"),
+        "herold.at":      ("cities_at.json", "categories_at.json"),
+        "proff.no":       ("cities_no.json", "categories_no.json"),
+        "proff.dk":       ("cities_dk.json", "categories_dk.json"),
+    }
+    cities_file, cats_file = _source_files.get(source, ("cities.json", "categories.json"))
+    cities = _load_json(cities_file)
+    categories = _load_json(cats_file)
 
     result = await db.execute(
         select(City.name, Category.name)
@@ -242,14 +245,34 @@ async def trigger_scrape(
     _admin: Company = Depends(require_admin),
 ):
     search_term = req.category
-    if req.source == "gelbeseiten.de":
-        cats = _load_json("categories_de.json")
+    city_slug = req.city
+
+    _source_cat_files = {
+        "gelbeseiten.de": "categories_de.json",
+        "herold.at":      "categories_at.json",
+        "proff.no":       "categories_no.json",
+        "proff.dk":       "categories_dk.json",
+    }
+    _source_city_files = {
+        "herold.at":  "cities_at.json",
+        "proff.no":   "cities_no.json",
+        "proff.dk":   "cities_dk.json",
+    }
+
+    if req.source in _source_cat_files:
+        cats = _load_json(_source_cat_files[req.source])
         match = next((c for c in cats if c["name"] == req.category), None)
         if match:
-            search_term = match.get("search_term", req.category)
+            search_term = match.get("slug") or match.get("search_term") or req.category
+
+    if req.source in _source_city_files:
+        city_json = _load_json(_source_city_files[req.source])
+        city_match = next((c for c in city_json if c["name"] == req.city), None)
+        if city_match:
+            city_slug = city_match.get("slug", req.city)
 
     job_id = create_job(req.city, req.category, source=req.source)
-    await enqueue_job(job_id, req.city, search_term, source=req.source, db_category=req.category)
+    await enqueue_job(job_id, city_slug, search_term, source=req.source, db_category=req.category)
     return {"job_id": job_id, "status": "queued"}
 
 
@@ -359,12 +382,15 @@ async def unscraped_combos(
     _admin: Company = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    if source == "gelbeseiten.de":
-        cities = _load_json("cities_de.json")
-        categories = _load_json("categories_de.json")
-    else:
-        cities = _load_json("cities.json")
-        categories = _load_json("categories.json")
+    _source_files = {
+        "gelbeseiten.de": ("cities_de.json", "categories_de.json"),
+        "herold.at":      ("cities_at.json", "categories_at.json"),
+        "proff.no":       ("cities_no.json", "categories_no.json"),
+        "proff.dk":       ("cities_dk.json", "categories_dk.json"),
+    }
+    cities_file, cats_file = _source_files.get(source, ("cities.json", "categories.json"))
+    cities = _load_json(cities_file)
+    categories = _load_json(cats_file)
 
     result = await db.execute(
         select(City.name, Category.name)

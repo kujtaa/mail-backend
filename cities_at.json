@@ -1,0 +1,22 @@
+[
+  {"id": 1,  "name": "Wien",       "slug": "wien"},
+  {"id": 2,  "name": "Graz",       "slug": "graz"},
+  {"id": 3,  "name": "Linz",       "slug": "linz"},
+  {"id": 4,  "name": "Salzburg",   "slug": "salzburg"},
+  {"id": 5,  "name": "Innsbruck",  "slug": "innsbruck"},
+  {"id": 6,  "name": "Klagenfurt", "slug": "klagenfurt"},
+  {"id": 7,  "name": "Villach",    "slug": "villach"},
+  {"id": 8,  "name": "Wels",       "slug": "wels"},
+  {"id": 9,  "name": "St. Pölten", "slug": "st-poelten"},
+  {"id": 10, "name": "Dornbirn",   "slug": "dornbirn"},
+  {"id": 11, "name": "Wiener Neustadt", "slug": "wiener-neustadt"},
+  {"id": 12, "name": "Steyr",      "slug": "steyr"},
+  {"id": 13, "name": "Feldkirch",  "slug": "feldkirch"},
+  {"id": 14, "name": "Bregenz",    "slug": "bregenz"},
+  {"id": 15, "name": "Leoben",     "slug": "leoben"},
+  {"id": 16, "name": "Klosterneuburg", "slug": "klosterneuburg"},
+  {"id": 17, "name": "Baden",      "slug": "baden"},
+  {"id": 18, "name": "Wolfsberg",  "slug": "wolfsberg"},
+  {"id": 19, "name": "Krems",      "slug": "krems-an-der-donau"},
+  {"id": 20, "name": "Traun",      "slug": "traun"}
+]

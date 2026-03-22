@@ -79,6 +79,9 @@ async def _worker():
     """Processes scrape jobs one at a time, routing to the correct scraper."""
     from scraper import scrape_category as scrape_ch
     from scraper_de import scrape_category as scrape_de
+    from scraper_at import scrape_category as scrape_at
+    from scraper_no import scrape_category as scrape_no
+    from scraper_dk import scrape_category as scrape_dk
     from crud import save_scraped_data
     from cache import invalidate_cache
     from db import async_session
@@ -97,6 +100,12 @@ async def _worker():
         try:
             if source == "gelbeseiten.de":
                 scraped = await scrape_de(city, category)
+            elif source == "herold.at":
+                scraped = await scrape_at(city, category)
+            elif source == "proff.no":
+                scraped = await scrape_no(city, category)
+            elif source == "proff.dk":
+                scraped = await scrape_dk(city, category)
             else:
                 scraped = await scrape_ch(city, category)
 

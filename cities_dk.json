@@ -1,0 +1,17 @@
+[
+  {"id": 1,  "name": "København",   "slug": "København"},
+  {"id": 2,  "name": "Aarhus",      "slug": "Aarhus"},
+  {"id": 3,  "name": "Odense",      "slug": "Odense"},
+  {"id": 4,  "name": "Aalborg",     "slug": "Aalborg"},
+  {"id": 5,  "name": "Esbjerg",     "slug": "Esbjerg"},
+  {"id": 6,  "name": "Randers",     "slug": "Randers"},
+  {"id": 7,  "name": "Kolding",     "slug": "Kolding"},
+  {"id": 8,  "name": "Vejle",       "slug": "Vejle"},
+  {"id": 9,  "name": "Horsens",     "slug": "Horsens"},
+  {"id": 10, "name": "Roskilde",    "slug": "Roskilde"},
+  {"id": 11, "name": "Helsingør",   "slug": "Helsingør"},
+  {"id": 12, "name": "Herning",     "slug": "Herning"},
+  {"id": 13, "name": "Silkeborg",   "slug": "Silkeborg"},
+  {"id": 14, "name": "Næstved",     "slug": "Næstved"},
+  {"id": 15, "name": "Fredericia",  "slug": "Fredericia"}
+]

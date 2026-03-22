@@ -1,0 +1,26 @@
+🇬🇧 UK
+
+yell.com — The UK's main yellow pages equivalent. It has over 2.9 million registered companies and more than 3,000 business classifications. PopArt Studio Contains name, phone, address, and often email.
+thomsonlocal.com — Another strong UK directory with local maps and contact info.
+
+
+🇺🇸 USA
+
+yellowpages.com — The direct US equivalent of gelbeseiten.de. Listings contain company names, phone numbers, addresses, ratings, and service categories. Web Scraper Emails are available on individual business profile pages.
+yelp.com — Also widely used in the US, with business name, phone, address, and sometimes email.
+
+
+🇩🇰 Denmark
+
+krak.dk — The main Danish business directory. Krak.dk is operated by Eniro Group, which has about 5.2 million unique visitors per week across its Nordic platforms. Wikipedia
+degulesider.dk — Also operated by Eniro, a complementary Danish yellow pages site.
+
+
+🇳🇴 Norway
+
+gulesider.no — Norway's primary yellow pages. It's Norway's exclusive yellow pages directory, visited by over 1.5 million users per week. Yext Contains name, phone, address, and website.
+
+
+🇦🇹 Austria
+
+herold.at — Herold.at is listed as a supported Austrian business directory alongside local.ch (Switzerland) and gelbeseiten.de (Germany) Ypspider, making it the most direct equivalent for Austria.

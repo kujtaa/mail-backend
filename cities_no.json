@@ -1,0 +1,17 @@
+[
+  {"id": 1,  "name": "Oslo",        "slug": "Oslo"},
+  {"id": 2,  "name": "Bergen",      "slug": "Bergen"},
+  {"id": 3,  "name": "Trondheim",   "slug": "Trondheim"},
+  {"id": 4,  "name": "Stavanger",   "slug": "Stavanger"},
+  {"id": 5,  "name": "Bærum",       "slug": "Bærum"},
+  {"id": 6,  "name": "Kristiansand","slug": "Kristiansand"},
+  {"id": 7,  "name": "Fredrikstad", "slug": "Fredrikstad"},
+  {"id": 8,  "name": "Sandnes",     "slug": "Sandnes"},
+  {"id": 9,  "name": "Tromsø",      "slug": "Tromsø"},
+  {"id": 10, "name": "Drammen",     "slug": "Drammen"},
+  {"id": 11, "name": "Asker",       "slug": "Asker"},
+  {"id": 12, "name": "Lillestrøm",  "slug": "Lillestrøm"},
+  {"id": 13, "name": "Sarpsborg",   "slug": "Sarpsborg"},
+  {"id": 14, "name": "Skien",       "slug": "Skien"},
+  {"id": 15, "name": "Bodø",        "slug": "Bodø"}
+]

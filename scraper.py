@@ -172,6 +172,15 @@ async def _fetch(
                         await asyncio.sleep(5 * (attempt + 1))
                         continue
                     return None
+            except aiohttp.ClientHttpProxyError as e:
+                proxy_label = proxy.split("//")[-1] if proxy else "direct"
+                if e.status == 407:
+                    log.debug("407 via %s — rotating proxy", proxy_label)
+                    await asyncio.sleep(1)
+                    continue
+                log.warning("Proxy error via %s (attempt %d/%d): %s",
+                            proxy_label, attempt + 1, MAX_RETRIES, e)
+                _block_proxy(proxy, 60)
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                 proxy_label = proxy.split("//")[-1] if proxy else "direct"
                 log.warning("Connection error via %s (attempt %d/%d): %s — %s",

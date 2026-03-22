@@ -4,6 +4,7 @@ sqlalchemy[asyncio]
 aiomysql
 alembic
 aiohttp
+Brotli
 beautifulsoup4
 random_user_agent
 pydantic[email]
