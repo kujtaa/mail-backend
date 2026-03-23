@@ -1,13 +1,24 @@
 import asyncio
 import logging
+import re
 import smtplib
+import uuid
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.utils import formatdate, make_msgid
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 log = logging.getLogger("email_service")
+
+
+def _strip_html(html: str) -> str:
+    text = re.sub(r"<br\s*/?>", "\n", html)
+    text = re.sub(r"</p>", "\n\n", text)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    return text
 
 
 def _send_single(
@@ -22,16 +33,25 @@ def _send_single(
     body: str,
 ) -> tuple[bool, str | None]:
     try:
-        msg = MIMEMultipart()
+        domain = from_email.split("@")[1] if "@" in from_email else "localhost"
+
+        msg = MIMEMultipart("alternative")
         msg["From"] = f"{from_name} <{from_email}>" if from_name else from_email
         msg["To"] = to_email
         msg["Subject"] = subject
-        msg.attach(MIMEText(body, "html"))
+        msg["Date"] = formatdate(localtime=True)
+        msg["Message-ID"] = make_msgid(domain=domain)
+        msg["MIME-Version"] = "1.0"
+        msg["X-Mailer"] = "Ch-Scraper/2.0"
+
+        plain_text = _strip_html(body)
+        msg.attach(MIMEText(plain_text, "plain", "utf-8"))
+        msg.attach(MIMEText(body, "html", "utf-8"))
 
         with smtplib.SMTP(host, port, timeout=15) as server:
-            server.ehlo()
+            server.ehlo(domain)
             server.starttls()
-            server.ehlo()
+            server.ehlo(domain)
             server.login(user, password)
             server.send_message(msg)
         return True, None
