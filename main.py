@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from db import init_db
-from routers import scraper, auth, dashboard, admin
+from routers import scraper, auth, dashboard, admin, unsubscribe
 
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("scraper").setLevel(logging.DEBUG)
@@ -41,6 +41,7 @@ app.include_router(scraper.router)
 app.include_router(auth.router)
 app.include_router(dashboard.router)
 app.include_router(admin.router)
+app.include_router(unsubscribe.router)
 
 
 @app.get("/")

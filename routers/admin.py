@@ -8,6 +8,7 @@ from sqlalchemy import select, func, distinct, or_
 from db import get_db
 from models import (
     Business, Category, City, Company, EmailBatch, BatchEmail, CreditTransaction, SentEmail,
+    UnsubscribedEmail,
 )
 from schemas import (
     AddCreditsRequest, CompanyAdmin, TransactionOut,
@@ -513,3 +514,69 @@ async def set_company_sources(
     company.set_allowed_sources(req.sources)
     await db.commit()
     return {"detail": f"Sources updated for '{company.name}'", "sources": company.get_allowed_sources()}
+
+
+@router.get("/unsubscribed")
+async def list_unsubscribed(
+    search: str = Query(""),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+    _admin: Company = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    query = select(UnsubscribedEmail).order_by(UnsubscribedEmail.unsubscribed_at.desc())
+    if search:
+        query = query.where(UnsubscribedEmail.email.ilike(f"%{search}%"))
+
+    count_q = await db.execute(
+        select(func.count()).select_from(query.subquery())
+    )
+    total = count_q.scalar()
+
+    query = query.offset((page - 1) * per_page).limit(per_page)
+    result = await db.execute(query)
+    rows = result.scalars().all()
+
+    biz_ids = [r.business_id for r in rows if r.business_id]
+    biz_map = {}
+    if biz_ids:
+        biz_q = await db.execute(
+            select(Business.id, Business.name, City.name.label("city_name"), Category.name.label("cat_name"))
+            .join(City, Business.city_id == City.id)
+            .join(Category, Business.category_id == Category.id)
+            .where(Business.id.in_(biz_ids))
+        )
+        for bid, bname, cname, catname in biz_q.all():
+            biz_map[bid] = {"business_name": bname, "city": cname, "category": catname}
+
+    items = []
+    for r in rows:
+        info = biz_map.get(r.business_id, {})
+        items.append({
+            "id": r.id,
+            "email": r.email,
+            "business_name": info.get("business_name"),
+            "city": info.get("city"),
+            "category": info.get("category"),
+            "unsubscribed_at": r.unsubscribed_at.isoformat() if r.unsubscribed_at else None,
+        })
+
+    return {"total": total, "items": items}
+
+
+@router.delete("/unsubscribed/{unsub_id}")
+async def remove_unsubscribed(
+    unsub_id: int,
+    _admin: Company = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(UnsubscribedEmail).where(UnsubscribedEmail.id == unsub_id)
+    )
+    unsub = result.scalar_one_or_none()
+    if not unsub:
+        raise HTTPException(status_code=404, detail="Record not found")
+    email = unsub.email
+    await db.delete(unsub)
+    await db.commit()
+    return {"detail": f"'{email}' removed from unsubscribe list"}

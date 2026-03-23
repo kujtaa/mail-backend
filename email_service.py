@@ -1,5 +1,9 @@
 import asyncio
+import base64
+import hashlib
+import hmac
 import logging
+import os
 import re
 import smtplib
 import uuid
@@ -11,6 +15,31 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 log = logging.getLogger("email_service")
+
+UNSUBSCRIBE_SECRET = os.getenv("JWT_SECRET", "change-me-in-production")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "https://mail-hub.pro")
+
+
+def generate_unsubscribe_token(email: str) -> str:
+    email_b64 = base64.urlsafe_b64encode(email.encode()).decode()
+    sig = hmac.new(UNSUBSCRIBE_SECRET.encode(), email.encode(), hashlib.sha256).hexdigest()
+    return f"{email_b64}.{sig}"
+
+
+def verify_unsubscribe_token(token: str) -> str | None:
+    try:
+        email_b64, sig = token.rsplit(".", 1)
+        email = base64.urlsafe_b64decode(email_b64).decode()
+        expected = hmac.new(UNSUBSCRIBE_SECRET.encode(), email.encode(), hashlib.sha256).hexdigest()
+        if hmac.compare_digest(sig, expected):
+            return email
+    except Exception:
+        pass
+    return None
+
+
+def build_unsubscribe_url(email: str) -> str:
+    return f"{FRONTEND_URL}/unsubscribe/{generate_unsubscribe_token(email)}"
 
 
 def _strip_html(html: str) -> str:
@@ -31,9 +60,23 @@ def _send_single(
     to_email: str,
     subject: str,
     body: str,
+    unsubscribe_url: str | None = None,
 ) -> tuple[bool, str | None]:
     try:
         domain = from_email.split("@")[1] if "@" in from_email else "localhost"
+
+        if unsubscribe_url:
+            unsub_html = (
+                '<div style="margin-top:30px;padding-top:15px;border-top:1px solid #e5e7eb;'
+                'text-align:center;font-size:12px;color:#9ca3af;">'
+                'If you no longer wish to receive these emails, '
+                f'<a href="{unsubscribe_url}" style="color:#6366f1;">unsubscribe here</a>.'
+                '</div>'
+            )
+            unsub_plain = f"\n\n---\nTo unsubscribe: {unsubscribe_url}"
+            body = body + unsub_html
+        else:
+            unsub_plain = ""
 
         msg = MIMEMultipart("alternative")
         msg["From"] = f"{from_name} <{from_email}>" if from_name else from_email
@@ -42,9 +85,13 @@ def _send_single(
         msg["Date"] = formatdate(localtime=True)
         msg["Message-ID"] = make_msgid(domain=domain)
         msg["MIME-Version"] = "1.0"
-        msg["X-Mailer"] = "Ch-Scraper/2.0"
+        msg["X-Mailer"] = "MailHub/2.0"
 
-        plain_text = _strip_html(body)
+        if unsubscribe_url:
+            msg["List-Unsubscribe"] = f"<{unsubscribe_url}>"
+            msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
+
+        plain_text = _strip_html(body) + unsub_plain
         msg.attach(MIMEText(plain_text, "plain", "utf-8"))
         msg.attach(MIMEText(body, "html", "utf-8"))
 
@@ -89,7 +136,7 @@ async def send_test_email(
 
 
 async def queue_emails(db: AsyncSession, sent_records: list):
-    from models import SentEmail, BatchEmail, Business, Company
+    from models import SentEmail, BatchEmail, Business, Company, UnsubscribedEmail
 
     if not sent_records:
         return
@@ -106,6 +153,9 @@ async def queue_emails(db: AsyncSession, sent_records: list):
         log.warning("Company %s has no SMTP configured — marking %d emails as failed", company_id, len(sent_records))
         return
 
+    unsub_q = await db.execute(select(UnsubscribedEmail.email))
+    unsubscribed_set = {row[0].lower() for row in unsub_q.all()}
+
     async def process(record):
         be_q = await db.execute(
             select(Business.email)
@@ -115,7 +165,11 @@ async def queue_emails(db: AsyncSession, sent_records: list):
         recipient = be_q.scalar()
         if not recipient:
             record.status = "failed"
+        elif recipient.lower() in unsubscribed_set:
+            record.status = "unsubscribed"
+            log.info("Skipped unsubscribed email: %s", recipient)
         else:
+            unsub_url = build_unsubscribe_url(recipient)
             success, error = await asyncio.to_thread(
                 _send_single,
                 company.smtp_host,
@@ -127,6 +181,7 @@ async def queue_emails(db: AsyncSession, sent_records: list):
                 recipient,
                 record.subject,
                 record.body,
+                unsub_url,
             )
             record.status = "sent" if success else "failed"
             if error:

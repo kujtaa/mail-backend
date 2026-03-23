@@ -7,6 +7,7 @@ from sqlalchemy import select, func, distinct, and_, or_, case
 from db import get_db
 from models import (
     Business, Category, City, Company, EmailBatch, BatchEmail, SentEmail, CreditTransaction,
+    UnsubscribedEmail,
 )
 from schemas import (
     DashboardStats, CategoryCount, EmailPreview, PurchaseBatchRequest,
@@ -26,6 +27,11 @@ def _source_filter(company):
     if not sources:
         return []
     return [Business.source.in_(sources)]
+
+
+def _unsub_filter():
+    unsub_subq = select(UnsubscribedEmail.email).scalar_subquery()
+    return Business.email.notin_(unsub_subq)
 
 
 def _is_premium(company) -> bool:
@@ -195,6 +201,7 @@ async def categories(
             Business.email.isnot(None),
             Business.email.contains("@"),
             Business.id.notin_(already_purchased),
+            _unsub_filter(),
             *sf,
         )
         .group_by(Category.id, Category.name)
@@ -223,6 +230,7 @@ async def browse_overview(
         Business.email.isnot(None),
         Business.email.contains("@"),
         Business.id.notin_(already_purchased),
+        _unsub_filter(),
         *sf,
     )
 
@@ -273,7 +281,7 @@ async def browse_emails(
                City.name.label("city_name"), Category.name.label("cat_name"))
         .join(City, Business.city_id == City.id)
         .join(Category, Business.category_id == Category.id)
-        .where(Business.email.isnot(None), Business.email.contains("@"), *sf)
+        .where(Business.email.isnot(None), Business.email.contains("@"), _unsub_filter(), *sf)
     )
     if category != "all":
         query = query.where(Category.name == category)
@@ -336,6 +344,7 @@ async def purchase_batch(
         Business.email.isnot(None),
         Business.email.contains("@"),
         Business.id.notin_(already_purchased),
+        _unsub_filter(),
         *sf,
     ]
     if cat:

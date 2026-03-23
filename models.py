@@ -122,7 +122,7 @@ class SentEmail(Base):
     subject = Column(String(500))
     body = Column(Text)
     sent_at = Column(DateTime, default=datetime.utcnow)
-    status = Column(String(20), default="pending")  # pending | sent | failed
+    status = Column(String(20), default="pending")  # pending | sent | failed | unsubscribed
 
     company = relationship("Company", back_populates="sent_emails")
     batch_email = relationship("BatchEmail", back_populates="sent_emails")
@@ -138,3 +138,12 @@ class CreditTransaction(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     company = relationship("Company", back_populates="credit_transactions")
+
+
+class UnsubscribedEmail(Base):
+    __tablename__ = "unsubscribed_emails"
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String(255), unique=True, nullable=False, index=True)
+    business_id = Column(Integer, ForeignKey("businesses.id"), nullable=True)
+    unsubscribed_at = Column(DateTime, default=datetime.utcnow)
+    token = Column(String(255), unique=True, nullable=False, index=True)
