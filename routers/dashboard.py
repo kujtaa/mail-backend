@@ -11,11 +11,11 @@ from models import (
 )
 from schemas import (
     DashboardStats, CategoryCount, EmailPreview, PurchaseBatchRequest,
-    BatchOut, BatchEmailOut, SendEmailRequest, SentEmailOut,
+    BatchOut, BatchEmailOut, SendEmailRequest, SendManualRequest, SentEmailOut,
     SmtpSettingsIn, SmtpSettingsOut, SmtpTestRequest,
 )
 from dependencies import get_current_company, require_approved
-from email_service import queue_emails, send_test_email
+from email_service import queue_emails, send_test_email, build_unsubscribe_url
 
 CREDIT_PRICE = float(os.getenv("CREDIT_PRICE_PER_EMAIL", "1"))
 
@@ -511,6 +511,53 @@ async def send_email(
     await db.commit()
     await queue_emails(db, sent_records)
     return {"queued": len(sent_records)}
+
+
+@router.post("/send-manual")
+async def send_manual(
+    req: SendManualRequest,
+    company: Company = Depends(require_approved),
+):
+    import asyncio
+    from email_service import _send_single
+
+    if not company.smtp_host or not company.smtp_user or not company.smtp_pass:
+        raise HTTPException(status_code=400, detail="SMTP not configured. Go to Settings to set up your email.")
+    if not company.smtp_enabled:
+        raise HTTPException(status_code=400, detail="SMTP is disabled. Enable it in Settings before sending.")
+
+    if not req.emails or len(req.emails) > 20:
+        raise HTTPException(status_code=400, detail="Provide between 1 and 20 email addresses.")
+
+    results = []
+    for to_email in req.emails:
+        to_email = to_email.strip()
+        if not to_email or "@" not in to_email:
+            results.append({"email": to_email, "status": "failed", "error": "Invalid email"})
+            continue
+
+        unsub_url = build_unsubscribe_url(to_email)
+        success, error = await asyncio.to_thread(
+            _send_single,
+            company.smtp_host,
+            company.smtp_port or 587,
+            company.smtp_user,
+            company.smtp_pass,
+            company.smtp_from_email or company.smtp_user,
+            company.smtp_from_name or company.name,
+            to_email,
+            req.subject,
+            req.body,
+            unsub_url,
+        )
+        results.append({
+            "email": to_email,
+            "status": "sent" if success else "failed",
+            "error": error,
+        })
+
+    sent_count = sum(1 for r in results if r["status"] == "sent")
+    return {"sent": sent_count, "total": len(results), "results": results}
 
 
 @router.get("/sent-history", response_model=list[SentEmailOut])

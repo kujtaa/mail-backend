@@ -113,6 +113,11 @@ class SendEmailRequest(BaseModel):
     subject: str
     body: str
 
+class SendManualRequest(BaseModel):
+    emails: list[str]
+    subject: str
+    body: str
+
 class SentEmailOut(BaseModel):
     id: int
     recipient_email: str
