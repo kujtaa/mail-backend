@@ -69,6 +69,7 @@ class Company(Base):
     smtp_from_email = Column(String(255), nullable=True)
     smtp_from_name = Column(String(255), nullable=True)
     smtp_enabled = Column(Boolean, nullable=False, default=False, server_default="0")
+    email_signature = Column(Text, nullable=True)
     allowed_sources = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

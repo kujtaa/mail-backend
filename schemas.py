@@ -136,6 +136,7 @@ class SmtpSettingsIn(BaseModel):
     smtp_from_email: str
     smtp_from_name: str = ""
     smtp_enabled: bool = True
+    email_signature: Optional[str] = None
 
 class SmtpSettingsOut(BaseModel):
     smtp_host: Optional[str] = None
@@ -145,6 +146,7 @@ class SmtpSettingsOut(BaseModel):
     smtp_from_name: Optional[str] = None
     smtp_enabled: bool = False
     has_password: bool = False
+    email_signature: Optional[str] = None
 
     class Config:
         from_attributes = True

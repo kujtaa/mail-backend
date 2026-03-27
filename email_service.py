@@ -61,9 +61,18 @@ def _send_single(
     subject: str,
     body: str,
     unsubscribe_url: str | None = None,
+    signature: str | None = None,
 ) -> tuple[bool, str | None]:
     try:
         domain = from_email.split("@")[1] if "@" in from_email else "localhost"
+
+        if signature:
+            sig_html = (
+                '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e5e7eb;">'
+                f'{signature}'
+                '</div>'
+            )
+            body = body + sig_html
 
         if unsubscribe_url:
             unsub_html = (
@@ -182,6 +191,7 @@ async def queue_emails(db: AsyncSession, sent_records: list):
                 record.subject,
                 record.body,
                 unsub_url,
+                company.email_signature,
             )
             record.status = "sent" if success else "failed"
             if error:

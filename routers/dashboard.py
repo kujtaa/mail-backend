@@ -549,6 +549,7 @@ async def send_manual(
             req.subject,
             req.body,
             unsub_url,
+            company.email_signature,
         )
         results.append({
             "email": to_email,
@@ -597,6 +598,7 @@ async def get_smtp_settings(
         smtp_from_name=company.smtp_from_name,
         smtp_enabled=company.smtp_enabled,
         has_password=bool(company.smtp_pass),
+        email_signature=company.email_signature,
     )
 
 
@@ -612,6 +614,7 @@ async def save_smtp_settings(
     company.smtp_from_email = req.smtp_from_email
     company.smtp_from_name = req.smtp_from_name or company.name
     company.smtp_enabled = req.smtp_enabled
+    company.email_signature = req.email_signature
     if req.smtp_pass:
         company.smtp_pass = req.smtp_pass
     await db.commit()
@@ -623,6 +626,7 @@ async def save_smtp_settings(
         smtp_from_name=company.smtp_from_name,
         smtp_enabled=company.smtp_enabled,
         has_password=bool(company.smtp_pass),
+        email_signature=company.email_signature,
     )
 
 
