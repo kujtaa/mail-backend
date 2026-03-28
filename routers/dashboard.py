@@ -295,6 +295,105 @@ async def categories_list(
     return [{"name": name, "count": count} for name, count in result.all()]
 
 
+@router.post("/purchase-batch-multi")
+async def purchase_batch_multi(
+    req: PurchaseMultiBatchRequest,
+    company: Company = Depends(require_approved),
+    db: AsyncSession = Depends(get_db),
+):
+    if not req.categories:
+        raise HTTPException(status_code=400, detail="Select at least one category")
+
+    # Resolve category IDs
+    cat_results = await db.execute(
+        select(Category).where(Category.name.in_(req.categories))
+    )
+    cats = cat_results.scalars().all()
+    found_names = {c.name for c in cats}
+    missing = [n for n in req.categories if n not in found_names]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"Categories not found: {', '.join(missing)}")
+    cat_ids = [c.id for c in cats]
+
+    # Resolve optional city
+    city_obj = None
+    if req.city:
+        city_q = await db.execute(select(City).where(City.name == req.city))
+        city_obj = city_q.scalar_one_or_none()
+        if not city_obj:
+            raise HTTPException(status_code=404, detail="City not found")
+
+    already_purchased = (
+        select(BatchEmail.business_id)
+        .join(EmailBatch, BatchEmail.batch_id == EmailBatch.id)
+        .where(EmailBatch.company_id == company.id)
+        .scalar_subquery()
+    )
+
+    sf = _source_filter(company)
+    filters = [
+        Business.email.isnot(None),
+        Business.email.contains("@"),
+        Business.category_id.in_(cat_ids),
+        Business.id.notin_(already_purchased),
+        _unsub_filter(),
+        *sf,
+    ]
+    if city_obj:
+        filters.append(Business.city_id == city_obj.id)
+
+    available_q = await db.execute(select(Business).where(and_(*filters)))
+    available = available_q.scalars().all()
+    if not available:
+        raise HTTPException(status_code=400, detail="No available emails for this selection")
+
+    actual_size = len(available)
+    premium = _is_premium(company)
+    actual_cost = 0.0 if premium else actual_size * CREDIT_PRICE
+
+    if not premium and company.credit_balance < actual_cost:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Insufficient credits. Need {actual_cost}, have {company.credit_balance}"
+        )
+
+    label = " — ".join(req.categories)
+    if city_obj:
+        label += f" ({city_obj.name})"
+
+    if not premium:
+        company.credit_balance -= actual_cost
+
+    batch = EmailBatch(
+        company_id=company.id,
+        category_id=None,
+        city_id=city_obj.id if city_obj else None,
+        label=label,
+        batch_size=actual_size,
+        price_paid=actual_cost,
+    )
+    db.add(batch)
+    await db.flush()
+
+    for biz in available:
+        db.add(BatchEmail(batch_id=batch.id, business_id=biz.id))
+
+    db.add(CreditTransaction(
+        company_id=company.id,
+        amount=-actual_cost,
+        type="purchase",
+        description=f"Purchased {actual_size} emails: {label}",
+    ))
+
+    await db.commit()
+    return {
+        "batch_id": batch.id,
+        "batch_size": actual_size,
+        "cost": actual_cost,
+        "remaining_credits": company.credit_balance,
+    }
+
+
 @router.get("/browse-emails", response_model=list[EmailPreview])
 async def browse_emails(
     category: str = Query("all"),
