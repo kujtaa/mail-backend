@@ -11,6 +11,7 @@ from models import (
 )
 from schemas import (
     DashboardStats, CategoryCount, EmailPreview, PurchaseBatchRequest,
+    PurchaseMultiBatchRequest,
     BatchOut, BatchEmailOut, SendEmailRequest, SendManualRequest, SentEmailOut,
     SmtpSettingsIn, SmtpSettingsOut, SmtpTestRequest,
 )
@@ -263,6 +264,35 @@ async def browse_overview(
         "by_category": by_category,
         "by_city": by_city,
     }
+
+
+@router.get("/categories-list")
+async def categories_list(
+    company: Company = Depends(require_approved),
+    db: AsyncSession = Depends(get_db),
+):
+    already_purchased = (
+        select(BatchEmail.business_id)
+        .join(EmailBatch, BatchEmail.batch_id == EmailBatch.id)
+        .where(EmailBatch.company_id == company.id)
+        .scalar_subquery()
+    )
+
+    sf = _source_filter(company)
+    result = await db.execute(
+        select(Category.name, func.count(distinct(Business.id)))
+        .join(Business, Business.category_id == Category.id)
+        .where(
+            Business.email.isnot(None),
+            Business.email.contains("@"),
+            Business.id.notin_(already_purchased),
+            _unsub_filter(),
+            *sf,
+        )
+        .group_by(Category.name)
+        .order_by(Category.name)
+    )
+    return [{"name": name, "count": count} for name, count in result.all()]
 
 
 @router.get("/browse-emails", response_model=list[EmailPreview])
