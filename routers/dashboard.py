@@ -360,6 +360,8 @@ async def purchase_batch_multi(
     label = " — ".join(req.categories)
     if city_obj:
         label += f" ({city_obj.name})"
+    if len(label) > 500:
+        label = label[:497] + "..."
 
     if not premium:
         company.credit_balance -= actual_cost
