@@ -92,6 +92,10 @@ class PurchaseBatchRequest(BaseModel):
     city: Optional[str] = None
     batch_size: int
 
+class PurchaseMultiBatchRequest(BaseModel):
+    categories: list[str]
+    city: Optional[str] = None
+
 class BatchOut(BaseModel):
     id: int
     label: Optional[str] = None
