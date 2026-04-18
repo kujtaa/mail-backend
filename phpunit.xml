@@ -26,5 +26,6 @@
         <env name="JWT_SECRET" value="test-secret"/>
         <env name="FRONTEND_URL" value="http://localhost:5173"/>
         <env name="CREDIT_PRICE_PER_EMAIL" value="1"/>
+        <env name="BCRYPT_ROUNDS" value="4"/>
     </php>
 </phpunit>
