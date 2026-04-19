@@ -125,4 +125,6 @@ return [
 
     'jwt_secret' => env('JWT_SECRET'),
 
+    'frontend_url' => env('FRONTEND_URL', 'http://localhost:5173'),
+
 ];

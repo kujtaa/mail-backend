@@ -37,7 +37,7 @@ class EmailService
     public function buildUnsubscribeUrl(string $email): string
     {
         $token = $this->generateUnsubscribeToken($email);
-        return rtrim(env('FRONTEND_URL', 'http://localhost:5173'), '/') . '/unsubscribe/' . $token;
+        return rtrim(config('app.frontend_url', 'http://localhost:5173'), '/') . '/unsubscribe/' . $token;
     }
 
     public function maskEmail(string $email): string
