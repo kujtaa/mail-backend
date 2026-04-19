@@ -4,6 +4,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 return new class extends Migration {
     public function up(): void {
+        if (Schema::hasTable('email_batches')) return;
         Schema::create('email_batches', function (Blueprint $table) {
             $table->id();
             $table->foreignId('company_id')->constrained('companies');

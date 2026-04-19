@@ -4,6 +4,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 return new class extends Migration {
     public function up(): void {
+        if (Schema::hasTable('unsubscribed_emails')) return;
         Schema::create('unsubscribed_emails', function (Blueprint $table) {
             $table->id();
             $table->string('email', 255)->unique()->index();
