@@ -105,11 +105,13 @@ class DashboardController extends Controller
             ->join('email_batches', 'batch_emails.batch_id', '=', 'email_batches.id')
             ->where('email_batches.company_id', $company->id);
 
+        $unsub = UnsubscribedEmail::pluck('email');
+
         $query = Category::select('categories.id', 'categories.name', DB::raw('COUNT(DISTINCT businesses.id) as available_count'))
             ->join('businesses', 'businesses.category_id', '=', 'categories.id')
             ->whereNotNull('businesses.email')->where('businesses.email', 'like', '%@%')
             ->whereNotIn('businesses.id', $alreadyPurchased)
-            ->whereNotIn('businesses.email', UnsubscribedEmail::pluck('email'));
+            ->when($unsub->isNotEmpty(), fn($q) => $q->whereNotIn('businesses.email', $unsub));
 
         $sources = $company->getAllowedSources();
         if (!empty($sources)) $query->whereIn('businesses.source', $sources);
@@ -352,6 +354,17 @@ class DashboardController extends Controller
             abort(400, 'SMTP is disabled. Enable it in Settings before sending.');
         }
 
+        $isPremium = $this->batchService->isPremium($company);
+        if ($isPremium) {
+            $this->batchService->resetDailySendsIfNeeded($company);
+            $company->refresh();
+            $remaining = $company->daily_send_limit - $company->daily_sends_used;
+            if ($remaining <= 0) abort(429, 'Daily send limit reached.');
+            if (count($data['emails']) > $remaining) {
+                abort(429, "Daily limit: {$remaining} sends remaining today.");
+            }
+        }
+
         $results = [];
         foreach ($data['emails'] as $to) {
             $to = trim($to);
@@ -369,6 +382,13 @@ class DashboardController extends Controller
                 $unsubUrl, $company->email_signature,
             );
             $results[] = ['email' => $to, 'status' => $success ? 'sent' : 'failed', 'error' => $error];
+        }
+
+        if ($isPremium) {
+            $successCount = collect($results)->where('status', 'sent')->count();
+            if ($successCount > 0) {
+                $company->increment('daily_sends_used', $successCount);
+            }
         }
 
         return response()->json([
@@ -423,7 +443,7 @@ class DashboardController extends Controller
             'smtp_port' => 'required|integer',
             'smtp_user' => 'required|string|max:255',
             'smtp_pass' => 'nullable|string',
-            'smtp_from_email' => 'required|string|max:255',
+            'smtp_from_email' => 'required|email|max:255',
             'smtp_from_name' => 'nullable|string|max:255',
             'smtp_enabled' => 'boolean',
             'email_signature' => 'nullable|string',
