@@ -42,8 +42,14 @@ class AuthController extends Controller
         ]);
 
         $company = Company::where('email', $data['email'])->first();
-        if (!$company || !Hash::check($data['password'], $company->hashed_password)) {
+        if (!$company || !$this->checkPassword($data['password'], $company->hashed_password)) {
             abort(401, 'Invalid credentials');
+        }
+
+        // Re-hash with Laravel's $2y$ prefix if stored as Python's $2b$
+        if (str_starts_with($company->hashed_password, '$2b$')) {
+            $company->hashed_password = Hash::make($data['password']);
+            $company->save();
         }
 
         $token = $company->createToken('auth-token')->plainTextToken;
@@ -57,6 +63,13 @@ class AuthController extends Controller
     public function me(Request $request)
     {
         return response()->json($this->companyProfile($request->user()));
+    }
+
+    private function checkPassword(string $plain, string $hashed): bool
+    {
+        // Python bcrypt uses $2b$, Laravel expects $2y$ — they are identical algorithms
+        $normalized = str_starts_with($hashed, '$2b$') ? '$2y$' . substr($hashed, 4) : $hashed;
+        return Hash::check($plain, $normalized);
     }
 
     private function companyProfile(Company $company): array
