@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 set -e
 
-cd /home/forge/your-site
+cd /home/forge/backend.anfrage-professionalclean.ch/current/backend
 
-git pull origin client
 composer install --no-dev --optimize-autoloader
 php artisan migrate --force
 php artisan config:cache
