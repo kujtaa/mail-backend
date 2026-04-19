@@ -109,7 +109,7 @@ class EmailService
             . '<h2 style="color:#4f46e5;">SMTP Connection Successful</h2>'
             . '<p style="color:#374151;line-height:1.6;">Your SMTP settings are working correctly.</p>'
             . '</div>';
-        return $this->sendSingle($host, $port, $user, $pass, $fromEmail, $fromName, $toEmail, 'MailerSaaS — SMTP Test', $body);
+        return $this->sendSingle($host, $port, $user, $pass, $fromEmail, $fromName, $toEmail, 'ProfessionalClean — SMTP Test', $body);
     }
 
     public function sendBatch(array $sentEmails): void
