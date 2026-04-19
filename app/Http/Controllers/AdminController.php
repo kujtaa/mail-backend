@@ -42,7 +42,7 @@ class AdminController extends Controller
     {
         $data = $request->validate([
             'company_id' => 'required|integer',
-            'amount' => 'required|numeric',
+            'amount' => 'required|numeric|gt:0',
             'description' => 'nullable|string',
         ]);
 
@@ -155,18 +155,26 @@ class AdminController extends Controller
         ]);
     }
 
-    public function transactions()
+    public function transactions(Request $request)
     {
-        $results = CreditTransaction::join('companies', 'credit_transactions.company_id', '=', 'companies.id')
-            ->select('credit_transactions.*', 'companies.name as company_name')
-            ->orderByDesc('credit_transactions.created_at')
-            ->get();
+        $page = max(1, (int)$request->query('page', 1));
+        $perPage = min(100, max(1, (int)$request->query('per_page', 50)));
 
-        return response()->json($results->map(fn($r) => [
-            'id' => $r->id, 'company_id' => $r->company_id, 'company_name' => $r->company_name,
-            'amount' => $r->amount, 'type' => $r->type, 'description' => $r->description,
-            'created_at' => $r->created_at?->toISOString(),
-        ]));
+        $query = CreditTransaction::join('companies', 'credit_transactions.company_id', '=', 'companies.id')
+            ->select('credit_transactions.*', 'companies.name as company_name')
+            ->orderByDesc('credit_transactions.created_at');
+
+        $total = (clone $query)->count();
+        $results = $query->skip(($page - 1) * $perPage)->take($perPage)->get();
+
+        return response()->json([
+            'total' => $total,
+            'items' => $results->map(fn($r) => [
+                'id' => $r->id, 'company_id' => $r->company_id, 'company_name' => $r->company_name,
+                'amount' => $r->amount, 'type' => $r->type, 'description' => $r->description,
+                'created_at' => $r->created_at?->toISOString(),
+            ]),
+        ]);
     }
 
     public function setPlan(Request $request)

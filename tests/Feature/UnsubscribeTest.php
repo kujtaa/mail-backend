@@ -67,4 +67,15 @@ class UnsubscribeTest extends TestCase
             'email' => 'biz@example.com', 'business_id' => $biz->id,
         ]);
     }
+
+    public function test_post_unsubscribe_also_works(): void
+    {
+        $token = $this->emailService->generateUnsubscribeToken('post@example.com');
+
+        $this->postJson("/unsubscribe/{$token}")
+             ->assertStatus(200)
+             ->assertJsonPath('email', 'post@example.com');
+
+        $this->assertDatabaseHas('unsubscribed_emails', ['email' => 'post@example.com']);
+    }
 }

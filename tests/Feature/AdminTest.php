@@ -90,4 +90,26 @@ class AdminTest extends TestCase
         $this->withToken($token)->deleteJson("/admin/companies/{$admin->id}")
              ->assertStatus(400);
     }
+
+    public function test_set_sources(): void
+    {
+        [$admin, $token] = $this->adminToken();
+        $company = Company::factory()->create();
+
+        $this->withToken($token)->postJson('/admin/set-sources', [
+            'company_id' => $company->id,
+            'sources' => ['local.ch', 'gelbeseiten.de'],
+        ])->assertStatus(200)->assertJsonPath('sources', ['local.ch', 'gelbeseiten.de']);
+    }
+
+    public function test_add_credits_rejects_negative_amount(): void
+    {
+        [$admin, $token] = $this->adminToken();
+        $company = Company::factory()->create(['credit_balance' => 10.0]);
+
+        $this->withToken($token)->postJson('/admin/add-credits', [
+            'company_id' => $company->id,
+            'amount' => -5.0,
+        ])->assertStatus(422);
+    }
 }
