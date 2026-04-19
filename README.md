@@ -1,66 +1,137 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# MailerSaaS — Laravel Backend
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Laravel 11 API backend replacing the previous Python/FastAPI backend. The React/Vite frontend requires no changes — all routes, response shapes, and Bearer token auth are identical.
 
-## About Laravel
+---
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Deploy on Laravel Forge
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+### 1. Create a new site on Forge
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+- PHP version: **8.2+**
+- Root directory: `backend/public`
+- Deploy branch: `client`
 
-## Learning Laravel
+### 2. Set environment variables
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+In Forge → **Environment**, set these variables:
 
-You may also try the [Laravel Bootcamp](https://bootcamp.laravel.com), where you will be guided through building a modern Laravel application from scratch.
+```
+APP_NAME=MailerSaaS
+APP_ENV=production
+APP_DEBUG=false
+APP_URL=https://your-api-domain.com
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=your_database
+DB_USERNAME=your_db_user
+DB_PASSWORD=your_db_password
 
-## Laravel Sponsors
+JWT_SECRET=                  # IMPORTANT: copy the exact same value from your Python .env
+                             # This keeps all existing unsubscribe links working
+FRONTEND_URL=https://your-frontend-domain.com
+CORS_ORIGINS=https://your-frontend-domain.com
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+CREDIT_PRICE_PER_EMAIL=1
+```
 
-### Premium Partners
+Generate `APP_KEY` once via SSH on the server:
+```bash
+php artisan key:generate
+```
 
-- **[Vehikl](https://vehikl.com/)**
-- **[Tighten Co.](https://tighten.co)**
-- **[WebReinvent](https://webreinvent.com/)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel/)**
-- **[Cyber-Duck](https://cyber-duck.co.uk)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Jump24](https://jump24.co.uk)**
-- **[Redberry](https://redberry.international/laravel/)**
-- **[Active Logic](https://activelogic.com)**
-- **[byte5](https://byte5.de)**
-- **[OP.GG](https://op.gg)**
+### 3. Set the deploy script
 
-## Contributing
+In Forge → **Deploy Script**, paste the contents of `forge-deploy.sh` (or point it directly to the file):
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+```bash
+cd /home/forge/your-site
+git pull origin client
+composer install --no-dev --optimize-autoloader
+php artisan migrate --force
+php artisan config:cache
+php artisan route:cache
+php artisan optimize
+echo "Deploy complete."
+```
 
-## Code of Conduct
+### 4. First deploy
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+Run the deploy script. It will:
+- Pull the latest code from the `client` branch
+- Install PHP dependencies
+- Run all database migrations (creates all tables)
+- Cache config and routes for production performance
 
-## Security Vulnerabilities
+### 5. Import your existing data (if migrating from the Python backend)
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+After the first deploy, import the production database dump from the old server:
 
-## License
+```bash
+# On the Forge server via SSH
+mysql -u your_db_user -p your_database < dump.sql
+```
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+The schema is identical to the Python/Alembic schema so the dump imports cleanly. Existing unsubscribe tokens remain valid as long as `JWT_SECRET` matches.
+
+---
+
+## Nginx configuration
+
+Make sure the Nginx root points to `backend/public`. Forge sets this automatically when you set the root directory during site creation.
+
+If you have a separate frontend domain, ensure your CORS_ORIGINS matches it exactly (no trailing slash).
+
+---
+
+## Sanctum (Auth)
+
+Authentication uses **Laravel Sanctum** in stateless mode — Bearer tokens only, no cookies or sessions.
+
+- `POST /auth/register` — creates account, returns `access_token`
+- `POST /auth/login` — returns `access_token`
+- All protected routes require `Authorization: Bearer <token>` header
+
+Token format is the same as the Python JWT responses (`{ access_token, token_type: "bearer" }`), so the frontend works without changes.
+
+---
+
+## Local development
+
+```bash
+cd backend
+cp .env.example .env
+composer install
+php artisan key:generate
+php artisan migrate
+php artisan serve   # runs on http://localhost:8000
+```
+
+Set `VITE_API_URL=http://localhost:8000` in `frontend/.env.local`.
+
+---
+
+## Running tests
+
+```bash
+cd backend
+php artisan test
+```
+
+Tests use SQLite in-memory — no database setup required.
+
+---
+
+## Environment variable reference
+
+| Variable | Required | Description |
+|---|---|---|
+| `APP_KEY` | Yes | Generated by `php artisan key:generate` |
+| `APP_ENV` | Yes | `production` on Forge |
+| `DB_*` | Yes | MySQL connection details |
+| `JWT_SECRET` | Yes | Must match Python backend value for unsubscribe token compatibility |
+| `FRONTEND_URL` | Yes | Used to build unsubscribe links in emails (e.g. `https://mail-hub.pro`) |
+| `CORS_ORIGINS` | Yes | Comma-separated allowed origins (e.g. `https://mail-hub.pro`) |
+| `CREDIT_PRICE_PER_EMAIL` | No | Defaults to `1` |
