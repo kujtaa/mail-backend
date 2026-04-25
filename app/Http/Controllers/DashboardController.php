@@ -51,9 +51,6 @@ class DashboardController extends Controller
         $sent = SentEmail::where('company_id', $company->id)->where('status', 'sent')->count();
         $failed = SentEmail::where('company_id', $company->id)->where('status', 'failed')->count();
 
-        $isPremium = $this->batchService->isPremium($company);
-        $remaining = $isPremium ? max(0, $company->daily_send_limit - $company->daily_sends_used) : 0;
-
         return response()->json([
             'total_emails_available' => $totalEmails,
             'total_businesses' => $totalBiz,
@@ -67,9 +64,9 @@ class DashboardController extends Controller
             'credit_balance' => $company->credit_balance,
             'batches_count' => $batches,
             'smtp_configured' => (bool)($company->smtp_enabled && $company->smtp_host),
-            'plan' => $isPremium ? 'premium' : 'free',
-            'daily_send_limit' => $isPremium ? $company->daily_send_limit : 0,
-            'daily_sends_remaining' => $remaining,
+            'plan' => 'full_access',
+            'daily_send_limit' => 0,
+            'daily_sends_remaining' => null,
         ]);
     }
 
@@ -198,12 +195,10 @@ class DashboardController extends Controller
             ->when($category !== 'all', fn($q) => $q->where('categories.name', $category))
             ->skip(($page - 1) * $perPage)->take($perPage);
 
-        $showFull = $company->is_admin || $this->batchService->isPremium($company);
-
         return response()->json($query->get()->map(fn($b) => [
             'id' => $b->id,
             'business_name' => $b->name,
-            'email' => $showFull ? $b->email : $this->emailService->maskEmail($b->email),
+            'email' => $b->email,
             'city' => $b->city_name,
             'category' => $b->cat_name,
         ]));
@@ -319,17 +314,6 @@ class DashboardController extends Controller
 
         if (empty($validIds)) abort(400, 'No unsent batch emails found');
 
-        $isPremium = $this->batchService->isPremium($company);
-        if ($isPremium) {
-            $this->batchService->resetDailySendsIfNeeded($company);
-            $company->refresh();
-            $remaining = $company->daily_send_limit - $company->daily_sends_used;
-            if ($remaining <= 0) abort(429, 'Daily send limit reached. Resets tomorrow.');
-            if (count($validIds) > $remaining) {
-                abort(429, "Daily limit: {$remaining} sends remaining today.");
-            }
-        }
-
         $records = [];
         foreach ($validIds as $id) {
             $records[] = SentEmail::create([
@@ -339,10 +323,6 @@ class DashboardController extends Controller
                 'body' => $data['body'],
                 'status' => 'pending',
             ]);
-        }
-
-        if ($isPremium) {
-            $company->increment('daily_sends_used', count($records));
         }
 
         $this->emailService->sendBatch($records);
@@ -366,17 +346,6 @@ class DashboardController extends Controller
             abort(400, 'SMTP is disabled. Enable it in Settings before sending.');
         }
 
-        $isPremium = $this->batchService->isPremium($company);
-        if ($isPremium) {
-            $this->batchService->resetDailySendsIfNeeded($company);
-            $company->refresh();
-            $remaining = $company->daily_send_limit - $company->daily_sends_used;
-            if ($remaining <= 0) abort(429, 'Daily send limit reached.');
-            if (count($data['emails']) > $remaining) {
-                abort(429, "Daily limit: {$remaining} sends remaining today.");
-            }
-        }
-
         $results = [];
         foreach ($data['emails'] as $to) {
             $to = trim($to);
@@ -394,13 +363,6 @@ class DashboardController extends Controller
                 $unsubUrl, $company->email_signature,
             );
             $results[] = ['email' => $to, 'status' => $success ? 'sent' : 'failed', 'error' => $error];
-        }
-
-        if ($isPremium) {
-            $successCount = collect($results)->where('status', 'sent')->count();
-            if ($successCount > 0) {
-                $company->increment('daily_sends_used', $successCount);
-            }
         }
 
         return response()->json([

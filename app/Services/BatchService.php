@@ -6,20 +6,12 @@ use App\Models\BatchEmail;
 use App\Models\Category;
 use App\Models\City;
 use App\Models\Company;
-use App\Models\CreditTransaction;
 use App\Models\EmailBatch;
 use App\Models\UnsubscribedEmail;
 use Illuminate\Support\Facades\DB;
 
 class BatchService
 {
-    private float $creditPrice;
-
-    public function __construct()
-    {
-        $this->creditPrice = (float) env('CREDIT_PRICE_PER_EMAIL', 1);
-    }
-
     public function isPremium(Company $company): bool
     {
         return $company->plan === 'premium'
@@ -63,13 +55,6 @@ class BatchService
 
     public function purchaseBatch(Company $company, ?string $categoryName, ?string $cityName, int $batchSize): array
     {
-        $isPremium = $this->isPremium($company);
-        $cost = $isPremium ? 0.0 : $batchSize * $this->creditPrice;
-
-        if (!$isPremium && $company->credit_balance < $cost) {
-            abort(400, "Insufficient credits. Need {$cost}, have {$company->credit_balance}");
-        }
-
         $cat = null;
         $cityObj = null;
         $labelParts = [];
@@ -96,14 +81,10 @@ class BatchService
         if ($available->isEmpty()) abort(400, 'No available emails for this selection');
 
         $actualSize = $available->count();
-        $actualCost = $isPremium ? 0.0 : $actualSize * $this->creditPrice;
+        $actualCost = 0.0;
         $label = implode(' — ', $labelParts) ?: 'Custom batch';
 
-        return DB::transaction(function () use ($company, $cat, $cityObj, $label, $actualSize, $actualCost, $available, $isPremium) {
-            if (!$isPremium) {
-                $company->decrement('credit_balance', $actualCost);
-            }
-
+        return DB::transaction(function () use ($company, $cat, $cityObj, $label, $actualSize, $actualCost, $available) {
             $batch = EmailBatch::create([
                 'company_id' => $company->id,
                 'category_id' => $cat?->id,
@@ -117,14 +98,6 @@ class BatchService
             foreach ($available as $biz) {
                 BatchEmail::create(['batch_id' => $batch->id, 'business_id' => $biz->id]);
             }
-
-            CreditTransaction::create([
-                'company_id' => $company->id,
-                'amount' => -$actualCost,
-                'type' => 'purchase',
-                'description' => "Purchased {$actualSize} emails: {$label}",
-                'created_at' => now(),
-            ]);
 
             $company->refresh();
             return [
@@ -161,20 +134,13 @@ class BatchService
         if ($available->isEmpty()) abort(400, 'No available emails for this selection');
 
         $actualSize = $available->count();
-        $isPremium = $this->isPremium($company);
-        $actualCost = $isPremium ? 0.0 : $actualSize * $this->creditPrice;
-
-        if (!$isPremium && $company->credit_balance < $actualCost) {
-            abort(400, "Insufficient credits. Need {$actualCost}, have {$company->credit_balance}");
-        }
+        $actualCost = 0.0;
 
         $label = implode(' — ', $categoryNames);
         if ($cityObj) $label .= " ({$cityObj->name})";
         if (strlen($label) > 500) $label = substr($label, 0, 497) . '...';
 
-        return DB::transaction(function () use ($company, $cityObj, $label, $actualSize, $actualCost, $available, $isPremium) {
-            if (!$isPremium) $company->decrement('credit_balance', $actualCost);
-
+        return DB::transaction(function () use ($company, $cityObj, $label, $actualSize, $actualCost, $available) {
             $batch = EmailBatch::create([
                 'company_id' => $company->id,
                 'category_id' => null,
@@ -188,14 +154,6 @@ class BatchService
             foreach ($available as $biz) {
                 BatchEmail::create(['batch_id' => $batch->id, 'business_id' => $biz->id]);
             }
-
-            CreditTransaction::create([
-                'company_id' => $company->id,
-                'amount' => -$actualCost,
-                'type' => 'purchase',
-                'description' => "Purchased {$actualSize} emails: {$label}",
-                'created_at' => now(),
-            ]);
 
             $company->refresh();
             return [

@@ -49,7 +49,7 @@ class DashboardTest extends TestCase
              ]);
     }
 
-    public function test_browse_emails_masks_for_free_user(): void
+    public function test_browse_emails_shows_full_email_for_standard_user(): void
     {
         [$company, $token] = $this->actingAsApproved(['allowed_sources' => 'local.ch']);
         $city = City::factory()->create();
@@ -62,8 +62,7 @@ class DashboardTest extends TestCase
         $response = $this->withToken($token)->getJson('/dashboard/browse-emails');
         $response->assertStatus(200);
         $emails = collect($response->json())->pluck('email');
-        $this->assertNotContains('john@example.com', $emails);
-        $this->assertTrue($emails->every(fn($e) => str_contains($e, '***')));
+        $this->assertContains('john@example.com', $emails);
     }
 
     public function test_browse_emails_shows_full_email_for_admin(): void
@@ -82,9 +81,9 @@ class DashboardTest extends TestCase
         $this->assertContains('admin@example.com', $emails);
     }
 
-    public function test_purchase_batch_deducts_credits(): void
+    public function test_purchase_batch_is_free_without_credits(): void
     {
-        [$company, $token] = $this->actingAsApproved(['credit_balance' => 100.0, 'allowed_sources' => 'local.ch']);
+        [$company, $token] = $this->actingAsApproved(['credit_balance' => 0.0, 'allowed_sources' => 'local.ch']);
         $city = City::factory()->create(['name' => 'Zurich']);
         $cat = Category::factory()->create(['name' => 'Restaurants']);
         Business::factory()->count(5)->create([
@@ -94,22 +93,23 @@ class DashboardTest extends TestCase
         $this->withToken($token)->postJson('/dashboard/purchase-batch', [
             'category' => 'Restaurants',
             'batch_size' => 3,
-        ])->assertStatus(200)->assertJsonStructure(['batch_id', 'batch_size', 'cost', 'remaining_credits']);
+        ])->assertStatus(200)->assertJsonPath('cost', 0);
 
-        $this->assertLessThan(100.0, $company->fresh()->credit_balance);
+        $this->assertSame(0.0, $company->fresh()->credit_balance);
     }
 
-    public function test_purchase_batch_insufficient_credits(): void
+    public function test_purchase_batch_multi_is_free_without_credits(): void
     {
         [$company, $token] = $this->actingAsApproved(['credit_balance' => 0.0, 'allowed_sources' => 'local.ch']);
         $city = City::factory()->create();
         $cat = Category::factory()->create(['name' => 'Test']);
         Business::factory()->count(3)->create(['city_id' => $city->id, 'category_id' => $cat->id, 'source' => 'local.ch']);
 
-        $this->withToken($token)->postJson('/dashboard/purchase-batch', [
-            'category' => 'Test',
-            'batch_size' => 3,
-        ])->assertStatus(400);
+        $this->withToken($token)->postJson('/dashboard/purchase-batch-multi', [
+            'categories' => ['Test'],
+        ])->assertStatus(200)->assertJsonPath('cost', 0);
+
+        $this->assertSame(0.0, $company->fresh()->credit_balance);
     }
 
     public function test_browse_overview_returns_category_and_city_counts(): void
@@ -228,6 +228,47 @@ class DashboardTest extends TestCase
             'subject' => 'New send',
         ]);
         $this->assertSame(2, SentEmail::where('company_id', $company->id)->count());
+    }
+
+    public function test_premium_daily_send_limit_does_not_block_batch_sending(): void
+    {
+        [$company, $token] = $this->actingAsApproved([
+            'allowed_sources' => 'local.ch',
+            'plan' => 'premium',
+            'plan_expires_at' => now()->addDay(),
+            'daily_send_limit' => 0,
+            'daily_sends_used' => 0,
+            'smtp_host' => 'smtp.example.com',
+            'smtp_port' => 587,
+            'smtp_user' => 'user@example.com',
+            'smtp_pass' => 'secret',
+            'smtp_enabled' => true,
+        ]);
+        $city = City::factory()->create(['name' => 'Zurich']);
+        $cat = Category::factory()->create(['name' => 'Restaurants']);
+        $batch = EmailBatch::create([
+            'company_id' => $company->id,
+            'category_id' => $cat->id,
+            'city_id' => $city->id,
+            'label' => 'Restaurants — Zurich',
+            'batch_size' => 1,
+            'price_paid' => 0,
+            'purchased_at' => now(),
+        ]);
+        $business = Business::factory()->create(['city_id' => $city->id, 'category_id' => $cat->id]);
+        $batchEmail = BatchEmail::create(['batch_id' => $batch->id, 'business_id' => $business->id]);
+
+        $this->mock(EmailService::class, function ($mock) {
+            $mock->shouldReceive('sendBatch')->once();
+        });
+
+        $this->withToken($token)->postJson('/dashboard/send-email', [
+            'batch_email_ids' => [$batchEmail->id],
+            'subject' => 'New send',
+            'body' => '<p>Hello again</p>',
+        ])->assertStatus(200)->assertJsonPath('queued', 1);
+
+        $this->assertSame(0, $company->fresh()->daily_sends_used);
     }
 
     public function test_smtp_settings_get_and_save(): void
