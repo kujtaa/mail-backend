@@ -4,6 +4,7 @@ namespace App\Services;
 use App\Models\Company;
 use App\Models\Business;
 use App\Models\UnsubscribedEmail;
+use Illuminate\Support\Facades\Log;
 use Symfony\Component\Mailer\Transport\Smtp\EsmtpTransport;
 use Symfony\Component\Mailer\Mailer as SymfonyMailer;
 use Symfony\Component\Mime\Email;
@@ -97,6 +98,12 @@ class EmailService
             (new SymfonyMailer($transport))->send($email);
             return [true, null];
         } catch (\Exception $e) {
+            Log::warning('SMTP send failed', [
+                'host' => $host,
+                'port' => $port,
+                'to_email' => $toEmail,
+                'error' => $e->getMessage(),
+            ]);
             return [false, $e->getMessage()];
         }
     }
