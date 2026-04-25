@@ -1,10 +1,14 @@
 <?php
 namespace Tests\Feature;
 
+use App\Models\BatchEmail;
 use App\Models\Business;
 use App\Models\Category;
 use App\Models\City;
 use App\Models\Company;
+use App\Models\EmailBatch;
+use App\Models\SentEmail;
+use App\Services\EmailService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -106,6 +110,104 @@ class DashboardTest extends TestCase
             'category' => 'Test',
             'batch_size' => 3,
         ])->assertStatus(400);
+    }
+
+    public function test_batch_emails_excludes_already_sent_recipients(): void
+    {
+        [$company, $token] = $this->actingAsApproved(['allowed_sources' => 'local.ch']);
+        $city = City::factory()->create(['name' => 'Zurich']);
+        $cat = Category::factory()->create(['name' => 'Restaurants']);
+        $batch = EmailBatch::create([
+            'company_id' => $company->id,
+            'category_id' => $cat->id,
+            'city_id' => $city->id,
+            'label' => 'Restaurants — Zurich',
+            'batch_size' => 2,
+            'price_paid' => 0,
+            'purchased_at' => now(),
+        ]);
+        $sentBusiness = Business::factory()->create([
+            'city_id' => $city->id,
+            'category_id' => $cat->id,
+            'email' => 'sent@example.com',
+            'source' => 'local.ch',
+        ]);
+        $freshBusiness = Business::factory()->create([
+            'city_id' => $city->id,
+            'category_id' => $cat->id,
+            'email' => 'fresh@example.com',
+            'source' => 'local.ch',
+        ]);
+        $sentBatchEmail = BatchEmail::create(['batch_id' => $batch->id, 'business_id' => $sentBusiness->id]);
+        BatchEmail::create(['batch_id' => $batch->id, 'business_id' => $freshBusiness->id]);
+        SentEmail::create([
+            'company_id' => $company->id,
+            'batch_email_id' => $sentBatchEmail->id,
+            'subject' => 'Previous send',
+            'body' => '<p>Hello</p>',
+            'status' => 'sent',
+            'sent_at' => now(),
+        ]);
+
+        $response = $this->withToken($token)->getJson("/dashboard/my-batches/{$batch->id}/emails");
+
+        $response->assertStatus(200);
+        $emails = collect($response->json())->pluck('email');
+        $this->assertNotContains('sent@example.com', $emails);
+        $this->assertContains('fresh@example.com', $emails);
+    }
+
+    public function test_send_email_only_queues_unsent_batch_recipients(): void
+    {
+        [$company, $token] = $this->actingAsApproved([
+            'allowed_sources' => 'local.ch',
+            'smtp_host' => 'smtp.example.com',
+            'smtp_port' => 587,
+            'smtp_user' => 'user@example.com',
+            'smtp_pass' => 'secret',
+            'smtp_enabled' => true,
+        ]);
+        $city = City::factory()->create(['name' => 'Zurich']);
+        $cat = Category::factory()->create(['name' => 'Restaurants']);
+        $batch = EmailBatch::create([
+            'company_id' => $company->id,
+            'category_id' => $cat->id,
+            'city_id' => $city->id,
+            'label' => 'Restaurants — Zurich',
+            'batch_size' => 2,
+            'price_paid' => 0,
+            'purchased_at' => now(),
+        ]);
+        $sentBusiness = Business::factory()->create(['city_id' => $city->id, 'category_id' => $cat->id]);
+        $freshBusiness = Business::factory()->create(['city_id' => $city->id, 'category_id' => $cat->id]);
+        $sentBatchEmail = BatchEmail::create(['batch_id' => $batch->id, 'business_id' => $sentBusiness->id]);
+        $freshBatchEmail = BatchEmail::create(['batch_id' => $batch->id, 'business_id' => $freshBusiness->id]);
+        SentEmail::create([
+            'company_id' => $company->id,
+            'batch_email_id' => $sentBatchEmail->id,
+            'subject' => 'Previous send',
+            'body' => '<p>Hello</p>',
+            'status' => 'sent',
+        ]);
+
+        $this->mock(EmailService::class, function ($mock) use ($freshBatchEmail) {
+            $mock->shouldReceive('sendBatch')->once()->withArgs(function ($records) use ($freshBatchEmail) {
+                return count($records) === 1 && $records[0]->batch_email_id === $freshBatchEmail->id;
+            });
+        });
+
+        $this->withToken($token)->postJson('/dashboard/send-email', [
+            'batch_email_ids' => [$sentBatchEmail->id, $freshBatchEmail->id],
+            'subject' => 'New send',
+            'body' => '<p>Hello again</p>',
+        ])->assertStatus(200)->assertJsonPath('queued', 1);
+
+        $this->assertDatabaseHas('sent_emails', [
+            'company_id' => $company->id,
+            'batch_email_id' => $freshBatchEmail->id,
+            'subject' => 'New send',
+        ]);
+        $this->assertSame(2, SentEmail::where('company_id', $company->id)->count());
     }
 
     public function test_smtp_settings_get_and_save(): void

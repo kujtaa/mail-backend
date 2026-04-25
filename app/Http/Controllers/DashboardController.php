@@ -270,6 +270,12 @@ class DashboardController extends Controller
             ->join('businesses', 'batch_emails.business_id', '=', 'businesses.id')
             ->join('cities', 'businesses.city_id', '=', 'cities.id')
             ->join('categories', 'businesses.category_id', '=', 'categories.id')
+            ->whereNotExists(function ($query) use ($company) {
+                $query->select(DB::raw(1))
+                    ->from('sent_emails')
+                    ->whereColumn('sent_emails.batch_email_id', 'batch_emails.id')
+                    ->where('sent_emails.company_id', $company->id);
+            })
             ->select('batch_emails.id', 'businesses.name', 'businesses.email',
                 'cities.name as city_name', 'categories.name as cat_name')
             ->get();
@@ -300,23 +306,29 @@ class DashboardController extends Controller
             abort(400, 'SMTP is disabled. Enable it in Settings before sending.');
         }
 
+        $validIds = BatchEmail::join('email_batches', 'batch_emails.batch_id', '=', 'email_batches.id')
+            ->where('email_batches.company_id', $company->id)
+            ->whereIn('batch_emails.id', $data['batch_email_ids'])
+            ->whereNotExists(function ($query) use ($company) {
+                $query->select(DB::raw(1))
+                    ->from('sent_emails')
+                    ->whereColumn('sent_emails.batch_email_id', 'batch_emails.id')
+                    ->where('sent_emails.company_id', $company->id);
+            })
+            ->pluck('batch_emails.id')->toArray();
+
+        if (empty($validIds)) abort(400, 'No unsent batch emails found');
+
         $isPremium = $this->batchService->isPremium($company);
         if ($isPremium) {
             $this->batchService->resetDailySendsIfNeeded($company);
             $company->refresh();
             $remaining = $company->daily_send_limit - $company->daily_sends_used;
             if ($remaining <= 0) abort(429, 'Daily send limit reached. Resets tomorrow.');
-            if (count($data['batch_email_ids']) > $remaining) {
+            if (count($validIds) > $remaining) {
                 abort(429, "Daily limit: {$remaining} sends remaining today.");
             }
         }
-
-        $validIds = BatchEmail::join('email_batches', 'batch_emails.batch_id', '=', 'email_batches.id')
-            ->where('email_batches.company_id', $company->id)
-            ->whereIn('batch_emails.id', $data['batch_email_ids'])
-            ->pluck('batch_emails.id')->toArray();
-
-        if (empty($validIds)) abort(400, 'No valid batch emails found');
 
         $records = [];
         foreach ($validIds as $id) {
