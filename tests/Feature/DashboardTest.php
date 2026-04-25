@@ -112,6 +112,26 @@ class DashboardTest extends TestCase
         ])->assertStatus(400);
     }
 
+    public function test_browse_overview_returns_category_and_city_counts(): void
+    {
+        [$company, $token] = $this->actingAsApproved(['allowed_sources' => 'local.ch']);
+        $city = City::factory()->create(['name' => 'Zurich']);
+        $cat = Category::factory()->create(['name' => 'Restaurants']);
+        Business::factory()->count(2)->create([
+            'city_id' => $city->id,
+            'category_id' => $cat->id,
+            'source' => 'local.ch',
+        ]);
+
+        $this->withToken($token)->getJson('/dashboard/browse-overview')
+            ->assertStatus(200)
+            ->assertJsonPath('total_available', 2)
+            ->assertJsonPath('by_category.0.name', 'Restaurants')
+            ->assertJsonPath('by_category.0.count', 2)
+            ->assertJsonPath('by_city.0.name', 'Zurich')
+            ->assertJsonPath('by_city.0.count', 2);
+    }
+
     public function test_batch_emails_excludes_already_sent_recipients(): void
     {
         [$company, $token] = $this->actingAsApproved(['allowed_sources' => 'local.ch']);

@@ -136,7 +136,7 @@ class DashboardController extends Controller
         $unsub = UnsubscribedEmail::pluck('email');
 
         $base = Business::whereNotNull('email')->where('email', 'like', '%@%')
-            ->whereNotIn('id', $alreadyPurchased)
+            ->whereNotIn('businesses.id', $alreadyPurchased)
             ->when($unsub->isNotEmpty(), fn($q) => $q->whereNotIn('email', $unsub))
             ->when(!empty($sources), fn($q) => $q->whereIn('source', $sources));
 
