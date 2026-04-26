@@ -9,6 +9,7 @@ use Symfony\Component\Mailer\Transport\Smtp\EsmtpTransport;
 use Symfony\Component\Mailer\Mailer as SymfonyMailer;
 use Symfony\Component\Mime\Email;
 use Symfony\Component\Mime\Address;
+use Symfony\Component\Mime\Part\DataPart;
 
 class EmailService
 {
@@ -53,6 +54,33 @@ class EmailService
         return $masked . '@' . $domain;
     }
 
+    public function embedInlineDataImages(Email $email, string $htmlBody): string
+    {
+        return preg_replace_callback(
+            '/(<img\b[^>]*\bsrc=)(["\'])data:(image\/[a-zA-Z0-9.+-]+);base64,([^"\']+)\2/i',
+            function (array $matches) use ($email) {
+                $imageData = base64_decode($matches[4], true);
+                if ($imageData === false) {
+                    return $matches[0];
+                }
+
+                $extension = match (strtolower($matches[3])) {
+                    'image/jpeg' => 'jpg',
+                    'image/svg+xml' => 'svg',
+                    default => strtolower(substr($matches[3], strlen('image/'))),
+                };
+                $contentId = 'inline-image-' . count($email->getAttachments()) . '@professionalclean.local';
+                $part = (new DataPart($imageData, "signature-logo.{$extension}", $matches[3]))
+                    ->setContentId($contentId)
+                    ->asInline();
+                $email->addPart($part);
+
+                return $matches[1] . $matches[2] . 'cid:' . $contentId . $matches[2];
+            },
+            $htmlBody,
+        );
+    }
+
     public function sendSingle(
         string $host, int $port, string $user, string $pass,
         string $fromEmail, string $fromName, string $toEmail,
@@ -87,8 +115,10 @@ class EmailService
                 ->replyTo($fromEmail)
                 ->to($toEmail)
                 ->subject($subject)
-                ->html($htmlBody)
                 ->text($plainText);
+
+            $htmlBody = $this->embedInlineDataImages($email, $htmlBody);
+            $email->html($htmlBody);
 
             if ($unsubUrl) {
                 $email->getHeaders()->addTextHeader('List-Unsubscribe', '<' . $unsubUrl . '>');

@@ -2,6 +2,7 @@
 namespace Tests\Unit;
 
 use App\Services\EmailService;
+use Symfony\Component\Mime\Email;
 use Tests\TestCase;
 
 class EmailServiceTest extends TestCase
@@ -43,5 +44,18 @@ class EmailServiceTest extends TestCase
     {
         $url = $this->service->buildUnsubscribeUrl('user@example.com');
         $this->assertStringStartsWith('http://localhost:5173/unsubscribe/', $url);
+    }
+
+    public function test_embed_inline_data_images_replaces_data_uri_with_cid_attachment(): void
+    {
+        $email = new Email();
+        $html = '<p>Logo</p><img src="data:image/png;base64,' . base64_encode('fake-image') . '" width="120">';
+
+        $result = $this->service->embedInlineDataImages($email, $html);
+
+        $this->assertStringContainsString('src="cid:', $result);
+        $this->assertStringNotContainsString('data:image/png;base64', $result);
+        $this->assertCount(1, $email->getAttachments());
+        $this->assertSame('image/png', $email->getAttachments()[0]->getMediaType() . '/' . $email->getAttachments()[0]->getMediaSubtype());
     }
 }
