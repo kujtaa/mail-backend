@@ -346,7 +346,7 @@ class DashboardTest extends TestCase
             ->assertJsonPath('0.error_message', 'SMTP timeout');
     }
 
-    public function test_retry_sent_history_requeues_failed_records(): void
+    public function test_retry_sent_history_requeues_failed_and_pending_records(): void
     {
         [$company, $token] = $this->actingAsApproved(['allowed_sources' => 'local.ch']);
         $city = City::factory()->create(['name' => 'Zurich']);
@@ -362,7 +362,7 @@ class DashboardTest extends TestCase
         ]);
         $business = Business::factory()->create(['city_id' => $city->id, 'category_id' => $cat->id]);
         $batchEmail = BatchEmail::create(['batch_id' => $batch->id, 'business_id' => $business->id]);
-        $record = SentEmail::create([
+        $failedRecord = SentEmail::create([
             'company_id' => $company->id,
             'batch_email_id' => $batchEmail->id,
             'subject' => 'Failed send',
@@ -371,20 +371,30 @@ class DashboardTest extends TestCase
             'sent_at' => now(),
             'error_message' => 'SMTP timeout',
         ]);
-
-        Queue::fake();
-
-        $this->withToken($token)->postJson('/dashboard/sent-history/retry', [
-            'sent_email_ids' => [$record->id],
-        ])->assertStatus(200)->assertJsonPath('queued', 1);
-
-        $this->assertDatabaseHas('sent_emails', [
-            'id' => $record->id,
+        $pendingRecord = SentEmail::create([
+            'company_id' => $company->id,
+            'batch_email_id' => $batchEmail->id,
+            'subject' => 'Pending send',
+            'body' => '<p>Hello</p>',
             'status' => 'pending',
             'sent_at' => null,
             'error_message' => null,
         ]);
-        Queue::assertPushed(SendQueuedEmail::class, fn($job) => $job->sentEmailId === $record->id);
+
+        Queue::fake();
+
+        $this->withToken($token)->postJson('/dashboard/sent-history/retry', [
+            'sent_email_ids' => [$failedRecord->id, $pendingRecord->id],
+        ])->assertStatus(200)->assertJsonPath('queued', 2);
+
+        $this->assertDatabaseHas('sent_emails', [
+            'id' => $failedRecord->id,
+            'status' => 'pending',
+            'sent_at' => null,
+            'error_message' => null,
+        ]);
+        Queue::assertPushed(SendQueuedEmail::class, fn($job) => $job->sentEmailId === $failedRecord->id);
+        Queue::assertPushed(SendQueuedEmail::class, fn($job) => $job->sentEmailId === $pendingRecord->id);
     }
 
     public function test_premium_daily_send_limit_does_not_block_batch_sending(): void

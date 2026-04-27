@@ -424,7 +424,7 @@ class DashboardController extends Controller
 
         $records = SentEmail::where('company_id', $company->id)
             ->whereIn('id', $data['sent_email_ids'])
-            ->where('status', 'failed')
+            ->whereIn('status', ['failed', 'pending'])
             ->orderBy('id')
             ->get();
 
