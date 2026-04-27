@@ -393,11 +393,13 @@ class DashboardController extends Controller
         $company = $request->user();
         $page = max(1, (int)$request->query('page', 1));
         $perPage = min(100, max(1, (int)$request->query('per_page', 20)));
+        $status = $request->query('status');
 
         $results = SentEmail::where('sent_emails.company_id', $company->id)
             ->join('batch_emails', 'sent_emails.batch_email_id', '=', 'batch_emails.id')
             ->join('businesses', 'batch_emails.business_id', '=', 'businesses.id')
             ->select('sent_emails.*', 'businesses.email as recipient_email')
+            ->when($status, fn($q) => $q->where('sent_emails.status', $status))
             ->orderByDesc('sent_emails.id')
             ->skip(($page - 1) * $perPage)->take($perPage)
             ->get();
@@ -410,6 +412,38 @@ class DashboardController extends Controller
             'status' => $r->status,
             'error_message' => $r->error_message,
         ]));
+    }
+
+    public function retrySentEmails(Request $request)
+    {
+        $company = $request->user();
+        $data = $request->validate([
+            'sent_email_ids' => 'required|array|min:1|max:150',
+            'sent_email_ids.*' => 'integer',
+        ]);
+
+        $records = SentEmail::where('company_id', $company->id)
+            ->whereIn('id', $data['sent_email_ids'])
+            ->where('status', 'failed')
+            ->orderBy('id')
+            ->get();
+
+        foreach ($records as $index => $record) {
+            $record->update([
+                'status' => 'pending',
+                'sent_at' => null,
+                'error_message' => null,
+            ]);
+
+            SendQueuedEmail::dispatch($record->id)
+                ->onConnection('database')
+                ->delay(now()->addSeconds($index * self::BATCH_SEND_DELAY_SECONDS));
+        }
+
+        return response()->json([
+            'queued' => $records->count(),
+            'delay_seconds' => self::BATCH_SEND_DELAY_SECONDS,
+        ]);
     }
 
     public function getSmtpSettings(Request $request)

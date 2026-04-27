@@ -346,6 +346,47 @@ class DashboardTest extends TestCase
             ->assertJsonPath('0.error_message', 'SMTP timeout');
     }
 
+    public function test_retry_sent_history_requeues_failed_records(): void
+    {
+        [$company, $token] = $this->actingAsApproved(['allowed_sources' => 'local.ch']);
+        $city = City::factory()->create(['name' => 'Zurich']);
+        $cat = Category::factory()->create(['name' => 'Restaurants']);
+        $batch = EmailBatch::create([
+            'company_id' => $company->id,
+            'category_id' => $cat->id,
+            'city_id' => $city->id,
+            'label' => 'Restaurants — Zurich',
+            'batch_size' => 1,
+            'price_paid' => 0,
+            'purchased_at' => now(),
+        ]);
+        $business = Business::factory()->create(['city_id' => $city->id, 'category_id' => $cat->id]);
+        $batchEmail = BatchEmail::create(['batch_id' => $batch->id, 'business_id' => $business->id]);
+        $record = SentEmail::create([
+            'company_id' => $company->id,
+            'batch_email_id' => $batchEmail->id,
+            'subject' => 'Failed send',
+            'body' => '<p>Hello</p>',
+            'status' => 'failed',
+            'sent_at' => now(),
+            'error_message' => 'SMTP timeout',
+        ]);
+
+        Queue::fake();
+
+        $this->withToken($token)->postJson('/dashboard/sent-history/retry', [
+            'sent_email_ids' => [$record->id],
+        ])->assertStatus(200)->assertJsonPath('queued', 1);
+
+        $this->assertDatabaseHas('sent_emails', [
+            'id' => $record->id,
+            'status' => 'pending',
+            'sent_at' => null,
+            'error_message' => null,
+        ]);
+        Queue::assertPushed(SendQueuedEmail::class, fn($job) => $job->sentEmailId === $record->id);
+    }
+
     public function test_premium_daily_send_limit_does_not_block_batch_sending(): void
     {
         [$company, $token] = $this->actingAsApproved([
