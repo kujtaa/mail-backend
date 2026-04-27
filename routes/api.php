@@ -25,6 +25,7 @@ Route::middleware(['auth:sanctum', 'approved'])->prefix('dashboard')->group(func
     Route::post('/send-manual', [DashboardController::class, 'sendManual']);
     Route::get('/sent-history', [DashboardController::class, 'sentHistory']);
     Route::post('/sent-history/retry', [DashboardController::class, 'retrySentEmails']);
+    Route::post('/sent-history/progress', [DashboardController::class, 'sentHistoryProgress']);
     Route::get('/smtp-settings', [DashboardController::class, 'getSmtpSettings']);
     Route::put('/smtp-settings', [DashboardController::class, 'saveSmtpSettings']);
     Route::post('/smtp-test', [DashboardController::class, 'testSmtp']);

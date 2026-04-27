@@ -446,6 +446,34 @@ class DashboardController extends Controller
         ]);
     }
 
+    public function sentHistoryProgress(Request $request)
+    {
+        $company = $request->user();
+        $data = $request->validate([
+            'sent_email_ids' => 'required|array|min:1|max:150',
+            'sent_email_ids.*' => 'integer',
+        ]);
+
+        $counts = SentEmail::where('company_id', $company->id)
+            ->whereIn('id', $data['sent_email_ids'])
+            ->selectRaw('status, COUNT(*) as count')
+            ->groupBy('status')
+            ->pluck('count', 'status');
+
+        $sent = (int)($counts['sent'] ?? 0);
+        $failed = (int)($counts['failed'] ?? 0);
+        $pending = (int)($counts['pending'] ?? 0);
+        $total = (int)$counts->sum();
+
+        return response()->json([
+            'total' => $total,
+            'sent' => $sent,
+            'failed' => $failed,
+            'pending' => $pending,
+            'completed' => $total > 0 && $pending === 0,
+        ]);
+    }
+
     public function getSmtpSettings(Request $request)
     {
         $c = $request->user();

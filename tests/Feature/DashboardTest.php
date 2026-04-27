@@ -397,6 +397,45 @@ class DashboardTest extends TestCase
         Queue::assertPushed(SendQueuedEmail::class, fn($job) => $job->sentEmailId === $pendingRecord->id);
     }
 
+    public function test_sent_history_progress_returns_status_counts_for_selected_records(): void
+    {
+        [$company, $token] = $this->actingAsApproved(['allowed_sources' => 'local.ch']);
+        $city = City::factory()->create(['name' => 'Zurich']);
+        $cat = Category::factory()->create(['name' => 'Restaurants']);
+        $batch = EmailBatch::create([
+            'company_id' => $company->id,
+            'category_id' => $cat->id,
+            'city_id' => $city->id,
+            'label' => 'Restaurants — Zurich',
+            'batch_size' => 3,
+            'price_paid' => 0,
+            'purchased_at' => now(),
+        ]);
+        $sentEmailIds = collect(['sent', 'failed', 'pending'])->map(function (string $status) use ($company, $city, $cat, $batch) {
+            $business = Business::factory()->create(['city_id' => $city->id, 'category_id' => $cat->id]);
+            $batchEmail = BatchEmail::create(['batch_id' => $batch->id, 'business_id' => $business->id]);
+
+            return SentEmail::create([
+                'company_id' => $company->id,
+                'batch_email_id' => $batchEmail->id,
+                'subject' => 'Progress send',
+                'body' => '<p>Hello</p>',
+                'status' => $status,
+                'sent_at' => $status === 'sent' ? now() : null,
+                'error_message' => $status === 'failed' ? 'SMTP timeout' : null,
+            ])->id;
+        });
+
+        $this->withToken($token)->postJson('/dashboard/sent-history/progress', [
+            'sent_email_ids' => $sentEmailIds->all(),
+        ])->assertStatus(200)
+            ->assertJsonPath('total', 3)
+            ->assertJsonPath('sent', 1)
+            ->assertJsonPath('failed', 1)
+            ->assertJsonPath('pending', 1)
+            ->assertJsonPath('completed', false);
+    }
+
     public function test_premium_daily_send_limit_does_not_block_batch_sending(): void
     {
         [$company, $token] = $this->actingAsApproved([
