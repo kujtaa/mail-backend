@@ -8,8 +8,9 @@ use App\Models\City;
 use App\Models\Company;
 use App\Models\EmailBatch;
 use App\Models\SentEmail;
-use App\Services\EmailService;
+use App\Jobs\SendQueuedEmail;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 class DashboardTest extends TestCase
@@ -152,6 +153,18 @@ class DashboardTest extends TestCase
             'email' => 'sent@example.com',
             'source' => 'local.ch',
         ]);
+        $failedBusiness = Business::factory()->create([
+            'city_id' => $city->id,
+            'category_id' => $cat->id,
+            'email' => 'failed@example.com',
+            'source' => 'local.ch',
+        ]);
+        $pendingBusiness = Business::factory()->create([
+            'city_id' => $city->id,
+            'category_id' => $cat->id,
+            'email' => 'pending@example.com',
+            'source' => 'local.ch',
+        ]);
         $freshBusiness = Business::factory()->create([
             'city_id' => $city->id,
             'category_id' => $cat->id,
@@ -159,6 +172,8 @@ class DashboardTest extends TestCase
             'source' => 'local.ch',
         ]);
         $sentBatchEmail = BatchEmail::create(['batch_id' => $batch->id, 'business_id' => $sentBusiness->id]);
+        $failedBatchEmail = BatchEmail::create(['batch_id' => $batch->id, 'business_id' => $failedBusiness->id]);
+        $pendingBatchEmail = BatchEmail::create(['batch_id' => $batch->id, 'business_id' => $pendingBusiness->id]);
         BatchEmail::create(['batch_id' => $batch->id, 'business_id' => $freshBusiness->id]);
         SentEmail::create([
             'company_id' => $company->id,
@@ -168,12 +183,29 @@ class DashboardTest extends TestCase
             'status' => 'sent',
             'sent_at' => now(),
         ]);
+        SentEmail::create([
+            'company_id' => $company->id,
+            'batch_email_id' => $failedBatchEmail->id,
+            'subject' => 'Previous send',
+            'body' => '<p>Hello</p>',
+            'status' => 'failed',
+            'sent_at' => now(),
+        ]);
+        SentEmail::create([
+            'company_id' => $company->id,
+            'batch_email_id' => $pendingBatchEmail->id,
+            'subject' => 'Previous send',
+            'body' => '<p>Hello</p>',
+            'status' => 'pending',
+        ]);
 
         $response = $this->withToken($token)->getJson("/dashboard/my-batches/{$batch->id}/emails");
 
         $response->assertStatus(200);
         $emails = collect($response->json())->pluck('email');
         $this->assertNotContains('sent@example.com', $emails);
+        $this->assertContains('failed@example.com', $emails);
+        $this->assertContains('pending@example.com', $emails);
         $this->assertContains('fresh@example.com', $emails);
     }
 
@@ -210,17 +242,15 @@ class DashboardTest extends TestCase
             'status' => 'sent',
         ]);
 
-        $this->mock(EmailService::class, function ($mock) use ($freshBatchEmail) {
-            $mock->shouldReceive('sendBatch')->once()->withArgs(function ($records) use ($freshBatchEmail) {
-                return count($records) === 1 && $records[0]->batch_email_id === $freshBatchEmail->id;
-            });
-        });
+        Queue::fake();
 
         $this->withToken($token)->postJson('/dashboard/send-email', [
             'batch_email_ids' => [$sentBatchEmail->id, $freshBatchEmail->id],
             'subject' => 'New send',
             'body' => '<p>Hello again</p>',
-        ])->assertStatus(200)->assertJsonPath('queued', 1);
+        ])->assertStatus(200)
+            ->assertJsonPath('queued', 1)
+            ->assertJsonPath('delay_seconds', 5);
 
         $this->assertDatabaseHas('sent_emails', [
             'company_id' => $company->id,
@@ -228,6 +258,92 @@ class DashboardTest extends TestCase
             'subject' => 'New send',
         ]);
         $this->assertSame(2, SentEmail::where('company_id', $company->id)->count());
+        $record = SentEmail::where('batch_email_id', $freshBatchEmail->id)->first();
+        Queue::assertPushed(SendQueuedEmail::class, fn($job) => $job->sentEmailId === $record->id);
+    }
+
+    public function test_send_email_reuses_existing_failed_or_pending_records(): void
+    {
+        [$company, $token] = $this->actingAsApproved([
+            'allowed_sources' => 'local.ch',
+            'smtp_host' => 'smtp.example.com',
+            'smtp_port' => 587,
+            'smtp_user' => 'user@example.com',
+            'smtp_pass' => 'secret',
+            'smtp_enabled' => true,
+        ]);
+        $city = City::factory()->create(['name' => 'Zurich']);
+        $cat = Category::factory()->create(['name' => 'Restaurants']);
+        $batch = EmailBatch::create([
+            'company_id' => $company->id,
+            'category_id' => $cat->id,
+            'city_id' => $city->id,
+            'label' => 'Restaurants — Zurich',
+            'batch_size' => 1,
+            'price_paid' => 0,
+            'purchased_at' => now(),
+        ]);
+        $business = Business::factory()->create(['city_id' => $city->id, 'category_id' => $cat->id]);
+        $batchEmail = BatchEmail::create(['batch_id' => $batch->id, 'business_id' => $business->id]);
+        SentEmail::create([
+            'company_id' => $company->id,
+            'batch_email_id' => $batchEmail->id,
+            'subject' => 'Old send',
+            'body' => '<p>Old</p>',
+            'status' => 'failed',
+            'sent_at' => now()->subMinute(),
+            'error_message' => 'Old failure',
+        ]);
+
+        Queue::fake();
+
+        $this->withToken($token)->postJson('/dashboard/send-email', [
+            'batch_email_ids' => [$batchEmail->id],
+            'subject' => 'Retry send',
+            'body' => '<p>Retry</p>',
+        ])->assertStatus(200)->assertJsonPath('queued', 1);
+
+        $this->assertSame(1, SentEmail::where('company_id', $company->id)->count());
+        $this->assertDatabaseHas('sent_emails', [
+            'company_id' => $company->id,
+            'batch_email_id' => $batchEmail->id,
+            'subject' => 'Retry send',
+            'status' => 'pending',
+            'error_message' => null,
+        ]);
+        $record = SentEmail::where('batch_email_id', $batchEmail->id)->first();
+        Queue::assertPushed(SendQueuedEmail::class, fn($job) => $job->sentEmailId === $record->id);
+    }
+
+    public function test_sent_history_includes_failure_error_message(): void
+    {
+        [$company, $token] = $this->actingAsApproved(['allowed_sources' => 'local.ch']);
+        $city = City::factory()->create(['name' => 'Zurich']);
+        $cat = Category::factory()->create(['name' => 'Restaurants']);
+        $batch = EmailBatch::create([
+            'company_id' => $company->id,
+            'category_id' => $cat->id,
+            'city_id' => $city->id,
+            'label' => 'Restaurants — Zurich',
+            'batch_size' => 1,
+            'price_paid' => 0,
+            'purchased_at' => now(),
+        ]);
+        $business = Business::factory()->create(['city_id' => $city->id, 'category_id' => $cat->id]);
+        $batchEmail = BatchEmail::create(['batch_id' => $batch->id, 'business_id' => $business->id]);
+        SentEmail::create([
+            'company_id' => $company->id,
+            'batch_email_id' => $batchEmail->id,
+            'subject' => 'Failed send',
+            'body' => '<p>Hello</p>',
+            'status' => 'failed',
+            'sent_at' => now(),
+            'error_message' => 'SMTP timeout',
+        ]);
+
+        $this->withToken($token)->getJson('/dashboard/sent-history')
+            ->assertStatus(200)
+            ->assertJsonPath('0.error_message', 'SMTP timeout');
     }
 
     public function test_premium_daily_send_limit_does_not_block_batch_sending(): void
@@ -258,9 +374,7 @@ class DashboardTest extends TestCase
         $business = Business::factory()->create(['city_id' => $city->id, 'category_id' => $cat->id]);
         $batchEmail = BatchEmail::create(['batch_id' => $batch->id, 'business_id' => $business->id]);
 
-        $this->mock(EmailService::class, function ($mock) {
-            $mock->shouldReceive('sendBatch')->once();
-        });
+        Queue::fake();
 
         $this->withToken($token)->postJson('/dashboard/send-email', [
             'batch_email_ids' => [$batchEmail->id],
@@ -269,6 +383,7 @@ class DashboardTest extends TestCase
         ])->assertStatus(200)->assertJsonPath('queued', 1);
 
         $this->assertSame(0, $company->fresh()->daily_sends_used);
+        Queue::assertPushed(SendQueuedEmail::class);
     }
 
     public function test_smtp_settings_get_and_save(): void

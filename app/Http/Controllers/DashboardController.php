@@ -10,6 +10,7 @@ use App\Models\CreditTransaction;
 use App\Models\EmailBatch;
 use App\Models\SentEmail;
 use App\Models\UnsubscribedEmail;
+use App\Jobs\SendQueuedEmail;
 use App\Services\BatchService;
 use App\Services\EmailService;
 use Illuminate\Http\Request;
@@ -17,6 +18,8 @@ use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
 {
+    private const BATCH_SEND_DELAY_SECONDS = 5;
+
     public function __construct(
         private EmailService $emailService,
         private BatchService $batchService,
@@ -269,7 +272,8 @@ class DashboardController extends Controller
                 $query->select(DB::raw(1))
                     ->from('sent_emails')
                     ->whereColumn('sent_emails.batch_email_id', 'batch_emails.id')
-                    ->where('sent_emails.company_id', $company->id);
+                    ->where('sent_emails.company_id', $company->id)
+                    ->where('sent_emails.status', 'sent');
             })
             ->select('batch_emails.id', 'businesses.name', 'businesses.email',
                 'cities.name as city_name', 'categories.name as cat_name')
@@ -308,7 +312,8 @@ class DashboardController extends Controller
                 $query->select(DB::raw(1))
                     ->from('sent_emails')
                     ->whereColumn('sent_emails.batch_email_id', 'batch_emails.id')
-                    ->where('sent_emails.company_id', $company->id);
+                    ->where('sent_emails.company_id', $company->id)
+                    ->where('sent_emails.status', 'sent');
             })
             ->pluck('batch_emails.id')->toArray();
 
@@ -316,17 +321,28 @@ class DashboardController extends Controller
 
         $records = [];
         foreach ($validIds as $id) {
-            $records[] = SentEmail::create([
+            $records[] = SentEmail::updateOrCreate([
                 'company_id' => $company->id,
                 'batch_email_id' => $id,
+            ], [
                 'subject' => $data['subject'],
                 'body' => $data['body'],
                 'status' => 'pending',
+                'sent_at' => null,
+                'error_message' => null,
             ]);
         }
 
-        $this->emailService->sendBatch($records);
-        return response()->json(['queued' => count($records)]);
+        foreach ($records as $index => $record) {
+            SendQueuedEmail::dispatch($record->id)
+                ->onConnection('database')
+                ->delay(now()->addSeconds($index * self::BATCH_SEND_DELAY_SECONDS));
+        }
+
+        return response()->json([
+            'queued' => count($records),
+            'delay_seconds' => self::BATCH_SEND_DELAY_SECONDS,
+        ]);
     }
 
     public function sendManual(Request $request)
@@ -382,7 +398,7 @@ class DashboardController extends Controller
             ->join('batch_emails', 'sent_emails.batch_email_id', '=', 'batch_emails.id')
             ->join('businesses', 'batch_emails.business_id', '=', 'businesses.id')
             ->select('sent_emails.*', 'businesses.email as recipient_email')
-            ->orderByDesc('sent_emails.sent_at')
+            ->orderByDesc('sent_emails.id')
             ->skip(($page - 1) * $perPage)->take($perPage)
             ->get();
 
@@ -392,6 +408,7 @@ class DashboardController extends Controller
             'subject' => $r->subject,
             'sent_at' => $r->sent_at?->toISOString(),
             'status' => $r->status,
+            'error_message' => $r->error_message,
         ]));
     }
 

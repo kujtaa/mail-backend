@@ -1,9 +1,6 @@
 <?php
 namespace App\Services;
 
-use App\Models\Company;
-use App\Models\Business;
-use App\Models\UnsubscribedEmail;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\Mailer\Transport\Smtp\EsmtpTransport;
 use Symfony\Component\Mailer\Mailer as SymfonyMailer;
@@ -149,54 +146,4 @@ class EmailService
         return $this->sendSingle($host, $port, $user, $pass, $fromEmail, $fromName, $toEmail, 'ProfessionalClean — SMTP Test', $body);
     }
 
-    public function sendBatch(array $sentEmails): void
-    {
-        if (empty($sentEmails)) return;
-
-        $company = Company::find($sentEmails[0]->company_id);
-
-        if (!$company || !$company->smtp_enabled || !$company->smtp_host || !$company->smtp_pass) {
-            foreach ($sentEmails as $record) {
-                $record->update(['status' => 'failed', 'sent_at' => now()]);
-            }
-            return;
-        }
-
-        $unsubscribed = array_flip(
-            UnsubscribedEmail::pluck('email')->map(fn($e) => strtolower($e))->toArray()
-        );
-
-        foreach ($sentEmails as $record) {
-            $recipient = Business::join('batch_emails', 'businesses.id', '=', 'batch_emails.business_id')
-                ->where('batch_emails.id', $record->batch_email_id)
-                ->value('businesses.email');
-
-            if (!$recipient) {
-                $record->update(['status' => 'failed', 'sent_at' => now()]);
-                continue;
-            }
-
-            if (isset($unsubscribed[strtolower($recipient)])) {
-                $record->update(['status' => 'unsubscribed', 'sent_at' => now()]);
-                continue;
-            }
-
-            $unsubUrl = $this->buildUnsubscribeUrl($recipient);
-            [$success] = $this->sendSingle(
-                $company->smtp_host,
-                $company->smtp_port ?? 587,
-                $company->smtp_user,
-                $company->smtp_pass,
-                $company->smtp_from_email ?? $company->smtp_user,
-                $company->smtp_from_name ?? $company->name,
-                $recipient,
-                $record->subject,
-                $record->body,
-                $unsubUrl,
-                $company->email_signature,
-            );
-
-            $record->update(['status' => $success ? 'sent' : 'failed', 'sent_at' => now()]);
-        }
-    }
 }
