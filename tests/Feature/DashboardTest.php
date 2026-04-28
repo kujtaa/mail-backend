@@ -10,6 +10,7 @@ use App\Models\EmailBatch;
 use App\Models\SentEmail;
 use App\Jobs\SendQueuedEmail;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
@@ -313,6 +314,41 @@ class DashboardTest extends TestCase
         ]);
         $record = SentEmail::where('batch_email_id', $batchEmail->id)->first();
         Queue::assertPushed(SendQueuedEmail::class, fn($job) => $job->sentEmailId === $record->id);
+    }
+
+    public function test_send_email_returns_clear_error_when_database_queue_table_is_missing(): void
+    {
+        Config::set('queue.default', 'database');
+        Config::set('queue.connections.database.table', 'missing_jobs_table');
+
+        [$company, $token] = $this->actingAsApproved([
+            'allowed_sources' => 'local.ch',
+            'smtp_host' => 'smtp.example.com',
+            'smtp_port' => 587,
+            'smtp_user' => 'user@example.com',
+            'smtp_pass' => 'secret',
+            'smtp_enabled' => true,
+        ]);
+        $city = City::factory()->create(['name' => 'Zurich']);
+        $cat = Category::factory()->create(['name' => 'Restaurants']);
+        $batch = EmailBatch::create([
+            'company_id' => $company->id,
+            'category_id' => $cat->id,
+            'city_id' => $city->id,
+            'label' => 'Restaurants — Zurich',
+            'batch_size' => 1,
+            'price_paid' => 0,
+            'purchased_at' => now(),
+        ]);
+        $business = Business::factory()->create(['city_id' => $city->id, 'category_id' => $cat->id]);
+        $batchEmail = BatchEmail::create(['batch_id' => $batch->id, 'business_id' => $business->id]);
+
+        $this->withToken($token)->postJson('/dashboard/send-email', [
+            'batch_email_ids' => [$batchEmail->id],
+            'subject' => 'New send',
+            'body' => '<p>Hello again</p>',
+        ])->assertStatus(503)
+            ->assertJsonPath('message', 'Email queue storage is not ready. Run database migrations before sending emails.');
     }
 
     public function test_sent_history_includes_failure_error_message(): void

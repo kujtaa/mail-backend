@@ -15,6 +15,7 @@ use App\Services\BatchService;
 use App\Services\EmailService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class DashboardController extends Controller
 {
@@ -24,6 +25,24 @@ class DashboardController extends Controller
         private EmailService $emailService,
         private BatchService $batchService,
     ) {}
+
+    private function ensureEmailQueueStorageIsReady(): void
+    {
+        if (config('queue.default') !== 'database') {
+            return;
+        }
+
+        $table = config('queue.connections.database.table', 'jobs');
+        $connection = config('queue.connections.database.connection');
+        $schema = $connection ? Schema::connection($connection) : Schema::getFacadeRoot();
+
+        if (!$schema->hasTable($table)) {
+            abort(response()->json([
+                'detail' => 'Email queue storage is not ready. Run database migrations before sending emails.',
+                'message' => 'Email queue storage is not ready. Run database migrations before sending emails.',
+            ], 503));
+        }
+    }
 
     private function applySourceFilter($query, Company $company)
     {
@@ -304,6 +323,7 @@ class DashboardController extends Controller
         if (!$company->smtp_enabled) {
             abort(400, 'SMTP is disabled. Enable it in Settings before sending.');
         }
+        $this->ensureEmailQueueStorageIsReady();
 
         $validIds = BatchEmail::join('email_batches', 'batch_emails.batch_id', '=', 'email_batches.id')
             ->where('email_batches.company_id', $company->id)
@@ -335,7 +355,6 @@ class DashboardController extends Controller
 
         foreach ($records as $index => $record) {
             SendQueuedEmail::dispatch($record->id)
-                ->onConnection('database')
                 ->delay(now()->addSeconds($index * self::BATCH_SEND_DELAY_SECONDS));
         }
 
@@ -421,6 +440,7 @@ class DashboardController extends Controller
             'sent_email_ids' => 'required|array|min:1|max:150',
             'sent_email_ids.*' => 'integer',
         ]);
+        $this->ensureEmailQueueStorageIsReady();
 
         $records = SentEmail::where('company_id', $company->id)
             ->whereIn('id', $data['sent_email_ids'])
@@ -436,7 +456,6 @@ class DashboardController extends Controller
             ]);
 
             SendQueuedEmail::dispatch($record->id)
-                ->onConnection('database')
                 ->delay(now()->addSeconds($index * self::BATCH_SEND_DELAY_SECONDS));
         }
 
