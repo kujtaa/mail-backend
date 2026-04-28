@@ -433,6 +433,35 @@ class DashboardController extends Controller
         ]));
     }
 
+    public function processNextPendingSentEmail(Request $request)
+    {
+        $company = $request->user();
+        $record = SentEmail::where('company_id', $company->id)
+            ->where('status', 'pending')
+            ->orderBy('id')
+            ->first();
+
+        if (!$record) {
+            return response()->json([
+                'processed' => false,
+                'remaining_pending' => 0,
+            ]);
+        }
+
+        app()->call([new SendQueuedEmail($record->id), 'handle']);
+        $record->refresh();
+
+        return response()->json([
+            'processed' => true,
+            'id' => $record->id,
+            'status' => $record->status,
+            'error_message' => $record->error_message,
+            'remaining_pending' => SentEmail::where('company_id', $company->id)
+                ->where('status', 'pending')
+                ->count(),
+        ]);
+    }
+
     public function retrySentEmails(Request $request)
     {
         $company = $request->user();

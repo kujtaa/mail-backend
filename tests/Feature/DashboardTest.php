@@ -382,6 +382,44 @@ class DashboardTest extends TestCase
             ->assertJsonPath('0.error_message', 'SMTP timeout');
     }
 
+    public function test_process_next_pending_sent_email_runs_stuck_queue_job(): void
+    {
+        [$company, $token] = $this->actingAsApproved(['allowed_sources' => 'local.ch']);
+        $city = City::factory()->create(['name' => 'Zurich']);
+        $cat = Category::factory()->create(['name' => 'Restaurants']);
+        $batch = EmailBatch::create([
+            'company_id' => $company->id,
+            'category_id' => $cat->id,
+            'city_id' => $city->id,
+            'label' => 'Restaurants — Zurich',
+            'batch_size' => 1,
+            'price_paid' => 0,
+            'purchased_at' => now(),
+        ]);
+        $business = Business::factory()->create(['city_id' => $city->id, 'category_id' => $cat->id]);
+        $batchEmail = BatchEmail::create(['batch_id' => $batch->id, 'business_id' => $business->id]);
+        $record = SentEmail::create([
+            'company_id' => $company->id,
+            'batch_email_id' => $batchEmail->id,
+            'subject' => 'Pending send',
+            'body' => '<p>Hello</p>',
+            'status' => 'pending',
+        ]);
+
+        $this->withToken($token)->postJson('/dashboard/sent-history/process-next')
+            ->assertStatus(200)
+            ->assertJsonPath('processed', true)
+            ->assertJsonPath('id', $record->id)
+            ->assertJsonPath('status', 'failed')
+            ->assertJsonPath('remaining_pending', 0);
+
+        $this->assertDatabaseHas('sent_emails', [
+            'id' => $record->id,
+            'status' => 'failed',
+            'error_message' => 'SMTP is not configured or enabled.',
+        ]);
+    }
+
     public function test_retry_sent_history_requeues_failed_and_pending_records(): void
     {
         [$company, $token] = $this->actingAsApproved(['allowed_sources' => 'local.ch']);
