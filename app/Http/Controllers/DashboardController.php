@@ -450,15 +450,16 @@ class DashboardController extends Controller
 
         app()->call([new SendQueuedEmail($record->id), 'handle']);
         $record->refresh();
+        $remainingPending = SentEmail::where('company_id', $company->id)
+            ->where('status', 'pending')
+            ->count();
 
         return response()->json([
             'processed' => true,
             'id' => $record->id,
             'status' => $record->status,
             'error_message' => $record->error_message,
-            'remaining_pending' => SentEmail::where('company_id', $company->id)
-                ->where('status', 'pending')
-                ->count(),
+            'remaining_pending' => $remainingPending,
         ]);
     }
 
@@ -547,7 +548,6 @@ class DashboardController extends Controller
             'smtp_from_email' => 'required|email|max:255',
             'smtp_from_name' => 'nullable|string|max:255',
             'smtp_enabled' => 'boolean',
-            'email_signature' => 'nullable|string',
         ]);
 
         $company = $request->user();
@@ -558,7 +558,6 @@ class DashboardController extends Controller
             'smtp_from_email' => $data['smtp_from_email'],
             'smtp_from_name' => $data['smtp_from_name'] ?? $company->name,
             'smtp_enabled' => $data['smtp_enabled'] ?? true,
-            'email_signature' => $data['email_signature'] ?? null,
         ];
         if (!empty($data['smtp_pass'])) {
             $update['smtp_pass'] = $data['smtp_pass'];
@@ -566,6 +565,17 @@ class DashboardController extends Controller
 
         $company->update($update);
         return $this->getSmtpSettings($request);
+    }
+
+    public function saveSignature(Request $request)
+    {
+        $data = $request->validate([
+            'email_signature' => 'nullable|string',
+        ]);
+        $request->user()->update([
+            'email_signature' => $data['email_signature'] ?? null,
+        ]);
+        return response()->json(['ok' => true]);
     }
 
     public function testSmtp(Request $request)

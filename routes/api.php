@@ -29,6 +29,7 @@ Route::middleware(['auth:sanctum', 'approved'])->prefix('dashboard')->group(func
     Route::post('/sent-history/progress', [DashboardController::class, 'sentHistoryProgress']);
     Route::get('/smtp-settings', [DashboardController::class, 'getSmtpSettings']);
     Route::put('/smtp-settings', [DashboardController::class, 'saveSmtpSettings']);
+    Route::put('/email-signature', [DashboardController::class, 'saveSignature']);
     Route::post('/smtp-test', [DashboardController::class, 'testSmtp']);
 });
 
