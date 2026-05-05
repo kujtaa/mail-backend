@@ -78,6 +78,24 @@ class EmailService
         );
     }
 
+    private function normalizeHtmlForEmail(string $html): string
+    {
+        return preg_replace_callback(
+            '/<p(\b[^>]*)>/i',
+            function (array $m) {
+                $attrs = $m[1];
+                if (preg_match('/\bstyle=["\']([^"\']*)["\']/', $attrs, $s)) {
+                    $style = rtrim($s[1], ';') . ';margin:0 0 14px 0;padding:0;';
+                    $attrs = preg_replace('/\bstyle=["\'][^"\']*["\']/', "style=\"{$style}\"", $attrs);
+                } else {
+                    $attrs .= ' style="margin:0 0 14px 0;padding:0;"';
+                }
+                return '<p' . $attrs . '>';
+            },
+            $html,
+        );
+    }
+
     public function sendSingle(
         string $host, int $port, string $user, string $pass,
         string $fromEmail, string $fromName, string $toEmail,
@@ -85,6 +103,8 @@ class EmailService
         ?string $unsubUrl = null, ?string $signature = null
     ): array {
         try {
+            $htmlBody = $this->normalizeHtmlForEmail($htmlBody);
+
             if ($signature) {
                 $htmlBody .= '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e5e7eb;">'
                     . $signature . '</div>';
