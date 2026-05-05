@@ -109,6 +109,28 @@ class BatchService
         });
     }
 
+    public function countBatchMulti(Company $company, array $categoryNames, ?string $cityName): array
+    {
+        if (empty($categoryNames)) return ['count' => 0, 'city_found' => true];
+
+        $cats = Category::whereIn('name', $categoryNames)->get();
+        if ($cats->isEmpty()) return ['count' => 0, 'city_found' => true];
+
+        $cityObj = null;
+        if ($cityName) {
+            $cityObj = City::whereRaw('LOWER(name) = LOWER(?)', [trim($cityName)])->first();
+            if (!$cityObj) return ['count' => 0, 'city_found' => false];
+        }
+
+        $query = $this->baseQuery($company)
+            ->whereNotIn('id', $this->alreadyPurchasedSubquery($company))
+            ->whereIn('category_id', $cats->pluck('id'));
+
+        if ($cityObj) $query->where('city_id', $cityObj->id);
+
+        return ['count' => $query->count(), 'city_found' => true];
+    }
+
     public function purchaseBatchMulti(Company $company, array $categoryNames, ?string $cityName): array
     {
         if (empty($categoryNames)) abort(400, 'Select at least one category');

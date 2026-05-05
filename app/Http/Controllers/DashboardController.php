@@ -244,6 +244,20 @@ class DashboardController extends Controller
         return response()->json($result);
     }
 
+    public function estimateBatchMulti(Request $request)
+    {
+        $data = $request->validate([
+            'categories' => 'required|array|min:1',
+            'categories.*' => 'string',
+            'city' => 'nullable|string',
+        ]);
+
+        $result = $this->batchService->countBatchMulti(
+            $request->user(), $data['categories'], $data['city'] ?? null
+        );
+        return response()->json($result);
+    }
+
     public function purchaseBatchMulti(Request $request)
     {
         $data = $request->validate([

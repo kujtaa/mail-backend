@@ -18,6 +18,7 @@ Route::middleware(['auth:sanctum', 'approved'])->prefix('dashboard')->group(func
     Route::get('/categories-list', [DashboardController::class, 'categoriesList']);
     Route::get('/browse-emails', [DashboardController::class, 'browseEmails']);
     Route::post('/purchase-batch', [DashboardController::class, 'purchaseBatch']);
+    Route::post('/estimate-batch-multi', [DashboardController::class, 'estimateBatchMulti']);
     Route::post('/purchase-batch-multi', [DashboardController::class, 'purchaseBatchMulti']);
     Route::get('/my-batches', [DashboardController::class, 'myBatches']);
     Route::get('/my-batches/{batchId}/emails', [DashboardController::class, 'batchEmails']);
