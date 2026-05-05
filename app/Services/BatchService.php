@@ -66,8 +66,8 @@ class BatchService
         }
 
         if ($cityName) {
-            $cityObj = City::where('name', $cityName)->first();
-            if (!$cityObj) abort(404, 'City not found');
+            $cityObj = City::whereRaw('LOWER(name) = LOWER(?)', [trim($cityName)])->first();
+            if (!$cityObj) abort(400, "City \"{$cityName}\" not found. Check the spelling and try again.");
             $labelParts[] = $cityObj->name;
         }
 
@@ -120,8 +120,8 @@ class BatchService
 
         $cityObj = null;
         if ($cityName) {
-            $cityObj = City::where('name', $cityName)->first();
-            if (!$cityObj) abort(404, 'City not found');
+            $cityObj = City::whereRaw('LOWER(name) = LOWER(?)', [trim($cityName)])->first();
+            if (!$cityObj) abort(400, "City \"{$cityName}\" not found. Check the spelling and try again.");
         }
 
         $query = $this->baseQuery($company)
