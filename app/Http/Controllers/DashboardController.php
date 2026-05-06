@@ -306,7 +306,7 @@ class DashboardController extends Controller
                     ->from('sent_emails')
                     ->whereColumn('sent_emails.batch_email_id', 'batch_emails.id')
                     ->where('sent_emails.company_id', $company->id)
-                    ->where('sent_emails.status', 'sent');
+                    ->whereIn('sent_emails.status', ['sent', 'pending']);
             })
             ->select('batch_emails.id', 'businesses.name', 'businesses.email',
                 'cities.name as city_name', 'categories.name as cat_name')
