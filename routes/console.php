@@ -43,3 +43,9 @@ Artisan::command('emails:process-pending {--delay=10 : Seconds to wait between e
         }
     }
 })->purpose('Send all pending queued emails one by one with a delay between each');
+
+Artisan::command('emails:cancel-pending', function () {
+    $count = SentEmail::where('status', 'pending')
+        ->update(['status' => 'failed', 'error_message' => 'Cancelled by user']);
+    $this->info("Cancelled {$count} pending email(s).");
+})->purpose('Cancel all pending emails (sets them to failed so they can be retried later)');

@@ -500,6 +500,15 @@ class DashboardController extends Controller
         ]);
     }
 
+    public function cancelPendingEmails(Request $request)
+    {
+        $company = $request->user();
+        $count = SentEmail::where('company_id', $company->id)
+            ->where('status', 'pending')
+            ->update(['status' => 'failed', 'error_message' => 'Cancelled by user']);
+        return response()->json(['cancelled' => $count]);
+    }
+
     public function pendingEmailCount(Request $request)
     {
         $company = $request->user();
