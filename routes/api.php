@@ -34,6 +34,7 @@ Route::middleware(['auth:sanctum', 'approved'])->prefix('dashboard')->group(func
     Route::put('/smtp-settings', [DashboardController::class, 'saveSmtpSettings']);
     Route::put('/email-signature', [DashboardController::class, 'saveSignature']);
     Route::post('/smtp-test', [DashboardController::class, 'testSmtp']);
+    Route::post('/smtp-check', [DashboardController::class, 'checkSmtp']);
 });
 
 Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function () {

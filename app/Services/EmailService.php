@@ -155,6 +155,68 @@ class EmailService
         }
     }
 
+    public function checkSmtpAuth(string $host, int $port, string $user, string $pass): array
+    {
+        try {
+            $isDirectSsl = $port === 465;
+            $address = ($isDirectSsl ? 'ssl://' : 'tcp://') . $host . ':' . $port;
+            $context = stream_context_create(['ssl' => ['verify_peer' => false, 'verify_peer_name' => false]]);
+
+            $fp = @stream_socket_client($address, $errno, $errstr, 15, STREAM_CLIENT_CONNECT, $context);
+            if (!$fp) {
+                return [false, "Cannot connect to {$host}:{$port} — {$errstr}"];
+            }
+            stream_set_timeout($fp, 10);
+
+            $read = function () use ($fp): array {
+                $code = 0; $text = '';
+                while ($line = fgets($fp, 1024)) {
+                    $code = (int)substr($line, 0, 3);
+                    $text .= trim(substr($line, 4)) . ' ';
+                    if (isset($line[3]) && $line[3] === ' ') break;
+                }
+                return [$code, trim($text)];
+            };
+            $send = fn(string $cmd) => fwrite($fp, $cmd . "\r\n");
+
+            [$code] = $read();
+            if ($code !== 220) { fclose($fp); return [false, "Unexpected greeting (code {$code})"]; }
+
+            $send("EHLO localhost");
+            [$code, $ehloText] = $read();
+            if ($code !== 250) { fclose($fp); return [false, "EHLO failed (code {$code})"]; }
+
+            if (!$isDirectSsl && stripos($ehloText, 'STARTTLS') !== false) {
+                $send("STARTTLS");
+                [$code] = $read();
+                if ($code !== 220) { fclose($fp); return [false, "STARTTLS rejected (code {$code})"]; }
+                stream_socket_enable_crypto($fp, true, STREAM_CRYPTO_METHOD_TLS_CLIENT);
+                $send("EHLO localhost");
+                $read();
+            }
+
+            $send("AUTH LOGIN");
+            [$code] = $read();
+            if ($code === 334) {
+                $send(base64_encode($user));
+                $read();
+                $send(base64_encode($pass));
+                [$code, $msg] = $read();
+            } else {
+                $send("AUTH PLAIN " . base64_encode("\0{$user}\0{$pass}"));
+                [$code, $msg] = $read();
+            }
+
+            $send("QUIT");
+            fclose($fp);
+
+            if ($code === 235) return [true, null];
+            return [false, "Authentication failed ({$code}): {$msg}"];
+        } catch (\Throwable $e) {
+            return [false, $e->getMessage()];
+        }
+    }
+
     public function sendTestEmail(
         string $host, int $port, string $user, string $pass,
         string $fromEmail, string $fromName, string $toEmail

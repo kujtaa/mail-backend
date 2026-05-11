@@ -352,6 +352,16 @@ class DashboardController extends Controller
 
         if (empty($validIds)) abort(400, 'No unsent batch emails found');
 
+        $this->batchService->resetDailySendsIfNeeded($company);
+        $company->refresh();
+        if ($company->daily_send_limit > 0) {
+            $remaining = $company->daily_send_limit - $company->daily_sends_used;
+            if ($remaining <= 0) {
+                abort(400, "Daily sending limit reached ({$company->daily_send_limit}/day). Resets at midnight.");
+            }
+            $validIds = array_slice($validIds, 0, $remaining);
+        }
+
         $records = [];
         foreach ($validIds as $id) {
             $records[] = SentEmail::updateOrCreate([
@@ -445,23 +455,39 @@ class DashboardController extends Controller
     public function processNextPendingSentEmail(Request $request)
     {
         $company = $request->user();
+
+        $this->batchService->resetDailySendsIfNeeded($company);
+        $company->refresh();
+
+        $remainingPending = SentEmail::where('company_id', $company->id)->where('status', 'pending')->count();
+
+        if ($company->daily_send_limit > 0 && $company->daily_sends_used >= $company->daily_send_limit) {
+            return response()->json([
+                'processed' => false,
+                'remaining_pending' => $remainingPending,
+                'daily_limit_reached' => true,
+                'daily_send_limit' => $company->daily_send_limit,
+                'daily_sends_used' => $company->daily_sends_used,
+            ]);
+        }
+
         $record = SentEmail::where('company_id', $company->id)
             ->where('status', 'pending')
             ->orderBy('id')
             ->first();
 
         if (!$record) {
-            return response()->json([
-                'processed' => false,
-                'remaining_pending' => 0,
-            ]);
+            return response()->json(['processed' => false, 'remaining_pending' => 0]);
         }
 
         app()->call([new SendQueuedEmail($record->id), 'handle']);
         $record->refresh();
-        $remainingPending = SentEmail::where('company_id', $company->id)
-            ->where('status', 'pending')
-            ->count();
+
+        if ($record->status === 'sent') {
+            $company->increment('daily_sends_used');
+        }
+
+        $remainingPending = SentEmail::where('company_id', $company->id)->where('status', 'pending')->count();
 
         return response()->json([
             'processed' => true,
@@ -469,6 +495,9 @@ class DashboardController extends Controller
             'status' => $record->status,
             'error_message' => $record->error_message,
             'remaining_pending' => $remainingPending,
+            'daily_limit_reached' => false,
+            'daily_sends_used' => $company->fresh()->daily_sends_used,
+            'daily_send_limit' => $company->daily_send_limit,
         ]);
     }
 
@@ -549,6 +578,8 @@ class DashboardController extends Controller
     public function getSmtpSettings(Request $request)
     {
         $c = $request->user();
+        $this->batchService->resetDailySendsIfNeeded($c);
+        $c->refresh();
         return response()->json([
             'smtp_host' => $c->smtp_host,
             'smtp_port' => $c->smtp_port,
@@ -558,6 +589,9 @@ class DashboardController extends Controller
             'smtp_enabled' => (bool)$c->smtp_enabled,
             'has_password' => (bool)$c->smtp_pass,
             'email_signature' => $c->email_signature,
+            'daily_send_limit' => $c->daily_send_limit ?? 0,
+            'daily_sends_used' => $c->daily_sends_used ?? 0,
+            'daily_sends_reset_at' => $c->daily_sends_reset_at?->toISOString(),
         ]);
     }
 
@@ -571,6 +605,7 @@ class DashboardController extends Controller
             'smtp_from_email' => 'required|email|max:255',
             'smtp_from_name' => 'nullable|string|max:255',
             'smtp_enabled' => 'boolean',
+            'daily_send_limit' => 'nullable|integer|min:0',
         ]);
 
         $company = $request->user();
@@ -581,6 +616,7 @@ class DashboardController extends Controller
             'smtp_from_email' => $data['smtp_from_email'],
             'smtp_from_name' => $data['smtp_from_name'] ?? $company->name,
             'smtp_enabled' => $data['smtp_enabled'] ?? true,
+            'daily_send_limit' => $data['daily_send_limit'] ?? $company->daily_send_limit,
         ];
         if (!empty($data['smtp_pass'])) {
             $update['smtp_pass'] = $data['smtp_pass'];
@@ -623,5 +659,25 @@ class DashboardController extends Controller
 
         if ($ok) return response()->json(['detail' => "Test email sent successfully to {$data['to_email']}"]);
         abort(400, "SMTP test failed: {$error}");
+    }
+
+    public function checkSmtp(Request $request)
+    {
+        $company = $request->user();
+
+        if (!$company->smtp_host || !$company->smtp_user || !$company->smtp_pass) {
+            abort(400, 'SMTP settings not configured. Save your settings first.');
+        }
+
+        [$ok, $error] = $this->emailService->checkSmtpAuth(
+            $company->smtp_host, $company->smtp_port ?? 587,
+            $company->smtp_user, $company->smtp_pass,
+        );
+
+        return response()->json([
+            'ok' => $ok,
+            'error' => $error,
+            'checked_at' => now()->toISOString(),
+        ]);
     }
 }
