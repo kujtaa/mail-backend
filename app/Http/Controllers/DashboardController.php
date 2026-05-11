@@ -337,7 +337,6 @@ class DashboardController extends Controller
         if (!$company->smtp_enabled) {
             abort(400, 'SMTP is disabled. Enable it in Settings before sending.');
         }
-        $this->ensureEmailQueueStorageIsReady();
 
         $validIds = BatchEmail::join('email_batches', 'batch_emails.batch_id', '=', 'email_batches.id')
             ->where('email_batches.company_id', $company->id)
@@ -367,13 +366,9 @@ class DashboardController extends Controller
             ]);
         }
 
-        foreach ($records as $index => $record) {
-            SendQueuedEmail::dispatch($record->id)
-                ->delay(now()->addSeconds($index * self::BATCH_SEND_DELAY_SECONDS));
-        }
-
         return response()->json([
             'queued' => count($records),
+            'sent_email_ids' => collect($records)->pluck('id')->toArray(),
             'delay_seconds' => self::BATCH_SEND_DELAY_SECONDS,
         ]);
     }
@@ -382,7 +377,7 @@ class DashboardController extends Controller
     {
         $company = $request->user();
         $data = $request->validate([
-            'emails' => 'required|array|min:1|max:20',
+            'emails' => 'required|array|min:1|max:500',
             'emails.*' => 'string',
             'subject' => 'required|string',
             'body' => 'required|string',
@@ -481,10 +476,9 @@ class DashboardController extends Controller
     {
         $company = $request->user();
         $data = $request->validate([
-            'sent_email_ids' => 'required|array|min:1|max:150',
+            'sent_email_ids' => 'required|array|min:1|max:1000',
             'sent_email_ids.*' => 'integer',
         ]);
-        $this->ensureEmailQueueStorageIsReady();
 
         $records = SentEmail::where('company_id', $company->id)
             ->whereIn('id', $data['sent_email_ids'])
@@ -492,15 +486,12 @@ class DashboardController extends Controller
             ->orderBy('id')
             ->get();
 
-        foreach ($records as $index => $record) {
+        foreach ($records as $record) {
             $record->update([
                 'status' => 'pending',
                 'sent_at' => null,
                 'error_message' => null,
             ]);
-
-            SendQueuedEmail::dispatch($record->id)
-                ->delay(now()->addSeconds($index * self::BATCH_SEND_DELAY_SECONDS));
         }
 
         return response()->json([
@@ -509,11 +500,20 @@ class DashboardController extends Controller
         ]);
     }
 
+    public function pendingEmailCount(Request $request)
+    {
+        $company = $request->user();
+        $count = SentEmail::where('company_id', $company->id)
+            ->where('status', 'pending')
+            ->count();
+        return response()->json(['pending' => $count]);
+    }
+
     public function sentHistoryProgress(Request $request)
     {
         $company = $request->user();
         $data = $request->validate([
-            'sent_email_ids' => 'required|array|min:1|max:150',
+            'sent_email_ids' => 'required|array|min:1|max:1000',
             'sent_email_ids.*' => 'integer',
         ]);
 
