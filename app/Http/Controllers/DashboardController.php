@@ -291,6 +291,20 @@ class DashboardController extends Controller
         ]));
     }
 
+    public function deleteBatch(int $batchId, Request $request)
+    {
+        $company = $request->user();
+        $batch = EmailBatch::where('id', $batchId)->where('company_id', $company->id)->first();
+        if (!$batch) abort(404, 'Batch not found');
+
+        $batchEmailIds = BatchEmail::where('batch_id', $batchId)->pluck('id');
+        SentEmail::whereIn('batch_email_id', $batchEmailIds)->delete();
+        BatchEmail::where('batch_id', $batchId)->delete();
+        $batch->delete();
+
+        return response()->json(['deleted' => true]);
+    }
+
     public function batchEmails(int $batchId, Request $request)
     {
         $company = $request->user();
