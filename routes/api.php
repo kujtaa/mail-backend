@@ -3,6 +3,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\UnsubscribeController;
+use App\Http\Controllers\UnsubscribedListController;
 use Illuminate\Support\Facades\Route;
 
 // Auth
@@ -36,6 +37,8 @@ Route::middleware(['auth:sanctum', 'approved'])->prefix('dashboard')->group(func
     Route::put('/email-signature', [DashboardController::class, 'saveSignature']);
     Route::post('/smtp-test', [DashboardController::class, 'testSmtp']);
     Route::post('/smtp-check', [DashboardController::class, 'checkSmtp']);
+    Route::get('/unsubscribed', [UnsubscribedListController::class, 'index']);
+    Route::post('/unsubscribed', [UnsubscribedListController::class, 'store']);
 });
 
 Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function () {
@@ -50,8 +53,6 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function ()
     Route::post('/set-plan', [AdminController::class, 'setPlan']);
     Route::delete('/companies/{companyId}', [AdminController::class, 'deleteCompany']);
     Route::post('/set-sources', [AdminController::class, 'setSources']);
-    Route::get('/unsubscribed', [AdminController::class, 'listUnsubscribed']);
-    Route::post('/unsubscribed', [AdminController::class, 'addUnsubscribed']);
 });
 
 Route::get('/unsubscribe/{token}', [UnsubscribeController::class, 'handle']);

@@ -115,25 +115,39 @@ class UnsubscribeTest extends TestCase
         [, $token] = $this->adminToken();
         $row = UnsubscribedEmail::create(['email' => 'gone@example.com', 'token' => 'tok-gone', 'unsubscribed_at' => now()]);
 
-        $this->withToken($token)->deleteJson("/admin/unsubscribed/{$row->id}")->assertStatus(404);
+        $this->withToken($token)->deleteJson("/dashboard/unsubscribed/{$row->id}")->assertStatus(404);
         $this->assertDatabaseHas('unsubscribed_emails', ['email' => 'gone@example.com']);
     }
 
     // ── Admin: list & manual add ────────────────────────────────────────────
 
-    public function test_list_requires_admin(): void
+    public function test_list_and_add_require_an_approved_account(): void
+    {
+        $pending = Company::factory()->unapproved()->create();
+        $token = $pending->createToken('t')->plainTextToken;
+        $this->withToken($token)->getJson('/dashboard/unsubscribed')->assertStatus(403);
+        $this->withToken($token)->postJson('/dashboard/unsubscribed', ['email' => 'x@example.com'])->assertStatus(403);
+    }
+
+    public function test_regular_approved_company_can_view_and_add(): void
     {
         $company = Company::factory()->create();
         $token = $company->createToken('t')->plainTextToken;
-        $this->withToken($token)->getJson('/admin/unsubscribed')->assertStatus(403);
-        $this->withToken($token)->postJson('/admin/unsubscribed', ['email' => 'x@example.com'])->assertStatus(403);
+
+        $this->withToken($token)->postJson('/dashboard/unsubscribed', ['email' => 'client@example.com'])
+             ->assertStatus(200)->assertJsonPath('added.0', 'client@example.com');
+
+        $this->withToken($token)->getJson('/dashboard/unsubscribed')
+             ->assertStatus(200)
+             ->assertJsonPath('total', 1)
+             ->assertJsonPath('items.0.added_by', $company->name);
     }
 
     public function test_admin_can_add_single_email_manually(): void
     {
         [$admin, $token] = $this->adminToken();
 
-        $this->withToken($token)->postJson('/admin/unsubscribed', [
+        $this->withToken($token)->postJson('/dashboard/unsubscribed', [
             'email' => '  Manual@Example.com ', 'note' => 'asked by phone',
         ])->assertStatus(200)
           ->assertJsonPath('added.0', 'manual@example.com');
@@ -151,7 +165,7 @@ class UnsubscribeTest extends TestCase
         [, $token] = $this->adminToken();
         UnsubscribedEmail::create(['email' => 'dup@example.com', 'token' => 'tok-dup', 'unsubscribed_at' => now()]);
 
-        $this->withToken($token)->postJson('/admin/unsubscribed', [
+        $this->withToken($token)->postJson('/dashboard/unsubscribed', [
             'emails' => ['new@example.com', 'DUP@example.com', 'not-an-email', 'new@example.com'],
         ])->assertStatus(200)
           ->assertJson([
@@ -166,7 +180,7 @@ class UnsubscribeTest extends TestCase
     public function test_admin_add_with_only_invalid_emails_returns_422(): void
     {
         [, $token] = $this->adminToken();
-        $this->withToken($token)->postJson('/admin/unsubscribed', ['emails' => ['nope']])->assertStatus(422);
+        $this->withToken($token)->postJson('/dashboard/unsubscribed', ['emails' => ['nope']])->assertStatus(422);
     }
 
     public function test_list_returns_items_counts_and_source_filter(): void
@@ -175,17 +189,17 @@ class UnsubscribeTest extends TestCase
         UnsubscribedEmail::create(['email' => 'a@example.com', 'token' => 'ta', 'unsubscribed_at' => now(), 'source' => 'link']);
         UnsubscribedEmail::create(['email' => 'b@example.com', 'token' => 'tb', 'unsubscribed_at' => now(), 'source' => 'manual']);
 
-        $this->withToken($token)->getJson('/admin/unsubscribed')
+        $this->withToken($token)->getJson('/dashboard/unsubscribed')
              ->assertStatus(200)
              ->assertJsonPath('total', 2)
              ->assertJsonPath('counts.link', 1)
              ->assertJsonPath('counts.manual', 1);
 
-        $this->withToken($token)->getJson('/admin/unsubscribed?source=manual')
+        $this->withToken($token)->getJson('/dashboard/unsubscribed?source=manual')
              ->assertJsonPath('total', 1)
              ->assertJsonPath('items.0.email', 'b@example.com');
 
-        $this->withToken($token)->getJson('/admin/unsubscribed?search=A@EX')
+        $this->withToken($token)->getJson('/dashboard/unsubscribed?search=A@EX')
              ->assertJsonPath('total', 1)
              ->assertJsonPath('items.0.email', 'a@example.com');
     }
@@ -287,7 +301,7 @@ class UnsubscribeTest extends TestCase
         $sent = SentEmail::create(['company_id' => $company->id, 'batch_email_id' => $row->id, 'subject' => 's', 'body' => 'b', 'status' => 'sent', 'sent_at' => now()]);
 
         [, $token] = $this->adminToken();
-        $this->withToken($token)->postJson('/admin/unsubscribed', ['email' => 'queued@example.com'])->assertStatus(200);
+        $this->withToken($token)->postJson('/dashboard/unsubscribed', ['email' => 'queued@example.com'])->assertStatus(200);
 
         $this->assertSame('unsubscribed', $pending->fresh()->status);
         $this->assertSame('sent', $sent->fresh()->status);
