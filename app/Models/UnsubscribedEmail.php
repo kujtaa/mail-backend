@@ -32,7 +32,18 @@ class UnsubscribedEmail extends Model
 
     public static function normalize(string $email): string
     {
-        return strtolower(trim($email));
+        return mb_strtolower(trim($email));
+    }
+
+    /**
+     * Lenient syntax check that accepts internationalised addresses such as
+     * info@seer-umzüge.ch, which PHP's FILTER_VALIDATE_EMAIL rejects. This is
+     * a block list, so accepting a slightly odd address is the safe direction.
+     */
+    public static function isValidAddress(string $email): bool
+    {
+        if ($email === '' || strlen($email) > 255) return false;
+        return (bool) preg_match('/^[^\s@,;<>()\[\]"]+@[^\s@,;<>()\[\]"]+\.[^\s@.,;<>()\[\]"]{2,}$/u', $email);
     }
 
     public static function contains(string $email): bool

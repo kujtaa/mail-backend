@@ -180,7 +180,24 @@ class UnsubscribeTest extends TestCase
     public function test_admin_add_with_only_invalid_emails_returns_422(): void
     {
         [, $token] = $this->adminToken();
-        $this->withToken($token)->postJson('/dashboard/unsubscribed', ['emails' => ['nope']])->assertStatus(422);
+        $this->withToken($token)->postJson('/dashboard/unsubscribed', ['emails' => ['nope']])
+             ->assertStatus(422)
+             ->assertJsonPath('detail', '1 invalid: nope');
+    }
+
+    public function test_internationalised_addresses_are_accepted_and_lowercased(): void
+    {
+        [, $token] = $this->adminToken();
+
+        $this->withToken($token)->postJson('/dashboard/unsubscribed', [
+            'emails' => ['Info@Seer-Umzüge.ch', 'kontakt@müller-bäckerei.ch', 'bad@nodot', 'two@@x.ch', 'has space@x.ch'],
+        ])->assertStatus(200)
+          ->assertJson([
+              'added' => ['info@seer-umzüge.ch', 'kontakt@müller-bäckerei.ch'],
+              'invalid' => ['bad@nodot', 'two@@x.ch', 'has space@x.ch'],
+          ]);
+
+        $this->assertTrue(UnsubscribedEmail::contains('INFO@SEER-UMZÜGE.CH'));
     }
 
     public function test_list_returns_items_counts_and_source_filter(): void

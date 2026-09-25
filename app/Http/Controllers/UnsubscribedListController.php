@@ -86,7 +86,7 @@ class UnsubscribedListController extends Controller
         $invalid = [];
 
         foreach ($candidates as $email) {
-            if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            if (!UnsubscribedEmail::isValidAddress($email)) {
                 $invalid[] = $email;
                 continue;
             }
@@ -99,7 +99,7 @@ class UnsubscribedListController extends Controller
         $parts = [];
         if ($added) $parts[] = count($added) . ' added';
         if ($existing) $parts[] = count($existing) . ' already unsubscribed';
-        if ($invalid) $parts[] = count($invalid) . ' invalid';
+        if ($invalid) $parts[] = count($invalid) . ' invalid: ' . implode(', ', $invalid);
 
         return response()->json([
             'detail' => $parts ? implode(', ', $parts) : 'Nothing to add',
