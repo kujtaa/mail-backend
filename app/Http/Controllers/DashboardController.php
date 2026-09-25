@@ -124,13 +124,11 @@ class DashboardController extends Controller
             ->join('email_batches', 'batch_emails.batch_id', '=', 'email_batches.id')
             ->where('email_batches.company_id', $company->id);
 
-        $unsub = UnsubscribedEmail::pluck('email');
-
         $query = Category::select('categories.id', 'categories.name', DB::raw('COUNT(DISTINCT businesses.id) as available_count'))
             ->join('businesses', 'businesses.category_id', '=', 'categories.id')
             ->whereNotNull('businesses.email')->where('businesses.email', 'like', '%@%')
-            ->whereNotIn('businesses.id', $alreadyPurchased)
-            ->when($unsub->isNotEmpty(), fn($q) => $q->whereNotIn('businesses.email', $unsub));
+            ->whereNotIn('businesses.id', $alreadyPurchased);
+        UnsubscribedEmail::excludeFrom($query, 'businesses.email');
 
         $sources = $company->getAllowedSources();
         if (!empty($sources)) $query->whereIn('businesses.source', $sources);
@@ -152,12 +150,11 @@ class DashboardController extends Controller
             ->where('email_batches.company_id', $company->id);
 
         $sources = $company->getAllowedSources();
-        $unsub = UnsubscribedEmail::pluck('email');
 
         $base = Business::whereNotNull('email')->where('email', 'like', '%@%')
             ->whereNotIn('businesses.id', $alreadyPurchased)
-            ->when($unsub->isNotEmpty(), fn($q) => $q->whereNotIn('email', $unsub))
             ->when(!empty($sources), fn($q) => $q->whereIn('source', $sources));
+        UnsubscribedEmail::excludeFrom($base, 'businesses.email');
 
         $total = (clone $base)->count();
 
@@ -184,15 +181,14 @@ class DashboardController extends Controller
             ->where('email_batches.company_id', $company->id);
 
         $sources = $company->getAllowedSources();
-        $unsub = UnsubscribedEmail::pluck('email');
 
-        $results = Category::select('categories.name', DB::raw('COUNT(DISTINCT businesses.id) as count'))
+        $query = Category::select('categories.name', DB::raw('COUNT(DISTINCT businesses.id) as count'))
             ->join('businesses', 'businesses.category_id', '=', 'categories.id')
             ->whereNotNull('businesses.email')->where('businesses.email', 'like', '%@%')
             ->whereNotIn('businesses.id', $alreadyPurchased)
-            ->when($unsub->isNotEmpty(), fn($q) => $q->whereNotIn('businesses.email', $unsub))
-            ->when(!empty($sources), fn($q) => $q->whereIn('businesses.source', $sources))
-            ->groupBy('categories.name')->orderBy('categories.name')->get();
+            ->when(!empty($sources), fn($q) => $q->whereIn('businesses.source', $sources));
+        UnsubscribedEmail::excludeFrom($query, 'businesses.email');
+        $results = $query->groupBy('categories.name')->orderBy('categories.name')->get();
 
         return response()->json($results->map(fn($r) => ['name' => $r->name, 'count' => $r->count]));
     }
@@ -205,17 +201,16 @@ class DashboardController extends Controller
         $perPage = min(100, max(1, (int)$request->query('per_page', 20)));
 
         $sources = $company->getAllowedSources();
-        $unsub = UnsubscribedEmail::pluck('email');
 
         $query = Business::select('businesses.id', 'businesses.name', 'businesses.email',
                 'cities.name as city_name', 'categories.name as cat_name')
             ->join('cities', 'businesses.city_id', '=', 'cities.id')
             ->join('categories', 'businesses.category_id', '=', 'categories.id')
             ->whereNotNull('businesses.email')->where('businesses.email', 'like', '%@%')
-            ->when($unsub->isNotEmpty(), fn($q) => $q->whereNotIn('businesses.email', $unsub))
             ->when(!empty($sources), fn($q) => $q->whereIn('businesses.source', $sources))
             ->when($category !== 'all', fn($q) => $q->where('categories.name', $category))
             ->skip(($page - 1) * $perPage)->take($perPage);
+        UnsubscribedEmail::excludeFrom($query, 'businesses.email');
 
         return response()->json($query->get()->map(fn($b) => [
             'id' => $b->id,
@@ -323,8 +318,9 @@ class DashboardController extends Controller
                     ->whereIn('sent_emails.status', ['sent', 'pending']);
             })
             ->select('batch_emails.id', 'businesses.name', 'businesses.email',
-                'cities.name as city_name', 'categories.name as cat_name')
-            ->get();
+                'cities.name as city_name', 'categories.name as cat_name');
+        UnsubscribedEmail::excludeFrom($results, 'businesses.email');
+        $results = $results->get();
 
         return response()->json($results->map(fn($r) => [
             'id' => $r->id,
@@ -366,6 +362,18 @@ class DashboardController extends Controller
 
         if (empty($validIds)) abort(400, 'No unsent batch emails found');
 
+        $suppressedQuery = BatchEmail::join('businesses', 'batch_emails.business_id', '=', 'businesses.id')
+            ->whereIn('batch_emails.id', $validIds);
+        $suppressedIds = $suppressedQuery->whereExists(function ($sub) {
+            $sub->selectRaw('1')->from('unsubscribed_emails')
+                ->whereRaw('unsubscribed_emails.email = LOWER(businesses.email)');
+        })->pluck('batch_emails.id')->toArray();
+
+        if ($suppressedIds) {
+            $validIds = array_values(array_diff($validIds, $suppressedIds));
+            if (empty($validIds)) abort(400, 'All selected recipients have unsubscribed.');
+        }
+
         $this->batchService->resetDailySendsIfNeeded($company);
         $company->refresh();
         if ($company->daily_send_limit > 0) {
@@ -392,6 +400,7 @@ class DashboardController extends Controller
 
         return response()->json([
             'queued' => count($records),
+            'skipped_unsubscribed' => count($suppressedIds),
             'sent_email_ids' => collect($records)->pluck('id')->toArray(),
             'delay_seconds' => self::BATCH_SEND_DELAY_SECONDS,
         ]);
@@ -419,6 +428,10 @@ class DashboardController extends Controller
             $to = trim($to);
             if (!$to || !str_contains($to, '@')) {
                 $results[] = ['email' => $to, 'status' => 'failed', 'error' => 'Invalid email'];
+                continue;
+            }
+            if (UnsubscribedEmail::contains($to)) {
+                $results[] = ['email' => $to, 'status' => 'unsubscribed', 'error' => 'Recipient is unsubscribed.'];
                 continue;
             }
             $unsubUrl = $this->emailService->buildUnsubscribeUrl($to);

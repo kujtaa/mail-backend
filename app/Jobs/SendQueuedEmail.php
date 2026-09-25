@@ -50,8 +50,7 @@ class SendQueuedEmail implements ShouldQueue
             return;
         }
 
-        $isUnsubscribed = UnsubscribedEmail::whereRaw('LOWER(email) = ?', [strtolower($recipient)])->exists();
-        if ($isUnsubscribed) {
+        if (UnsubscribedEmail::contains($recipient)) {
             $record->update([
                 'status' => 'unsubscribed',
                 'sent_at' => now(),

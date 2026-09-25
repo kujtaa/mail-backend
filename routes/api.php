@@ -51,7 +51,7 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function ()
     Route::delete('/companies/{companyId}', [AdminController::class, 'deleteCompany']);
     Route::post('/set-sources', [AdminController::class, 'setSources']);
     Route::get('/unsubscribed', [AdminController::class, 'listUnsubscribed']);
-    Route::delete('/unsubscribed/{unsubId}', [AdminController::class, 'removeUnsubscribed']);
+    Route::post('/unsubscribed', [AdminController::class, 'addUnsubscribed']);
 });
 
 Route::get('/unsubscribe/{token}', [UnsubscribeController::class, 'handle']);

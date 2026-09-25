@@ -38,10 +38,7 @@ class BatchService
             $query->whereIn('source', $sources);
         }
 
-        $unsubEmails = UnsubscribedEmail::pluck('email');
-        if ($unsubEmails->isNotEmpty()) {
-            $query->whereNotIn('email', $unsubEmails);
-        }
+        UnsubscribedEmail::excludeFrom($query, 'businesses.email');
 
         return $query;
     }
